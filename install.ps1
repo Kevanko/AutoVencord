@@ -4,6 +4,7 @@ $installerUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/Auto
 $tempDir = Join-Path $env:TEMP "AutoVencord"
 $batPath = Join-Path $tempDir "AutoVencord-OneClick.bat"
 $installedBaseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
+$installedInstallerPath = Join-Path $installedBaseDir "AutoVencord-OneClick.bat"
 $uninstallPath = Join-Path $installedBaseDir "uninstall.bat"
 $windowTitle = "AutoVencord"
 $taskName = "AutoVencord Watchdog"
@@ -93,6 +94,7 @@ function Get-UiText {
             Updating = Join-CodePoints @(1054,1073,1085,1086,1074,1083,1103,1102,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
             RunningUninstall = Join-CodePoints @(1047,1072,1087,1091,1089,1082,1072,1102,32,1091,1076,1072,1083,1077,1085,1080,1077,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
             MissingUninstall = Join-CodePoints @(65,117,116,111,86,101,110,99,111,114,100,32,1085,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085,46)
+            AlreadyLatest = Join-CodePoints @(1059,32,1074,1072,1089,32,1072,1082,1090,1091,1072,1083,1100,1085,1072,1103,32,1074,1077,1088,1089,1080,1103,46)
         }
     }
 
@@ -116,6 +118,7 @@ function Get-UiText {
         Updating = "Updating AutoVencord..."
         RunningUninstall = "Running AutoVencord uninstaller..."
         MissingUninstall = "AutoVencord is not installed."
+        AlreadyLatest = "You already have the latest version."
     }
 }
 
@@ -197,6 +200,25 @@ function Write-SelectedLine {
     $trimmed = if ($Text.Length -gt $safeWidth) { $Text.Substring(0, $safeWidth) } else { $Text }
     $padded = $trimmed.PadRight($safeWidth)
     Write-Host $padded -ForegroundColor Black -BackgroundColor Cyan
+}
+
+function Test-SameFileHash {
+    param(
+        [string]$LeftPath,
+        [string]$RightPath
+    )
+
+    if (-not (Test-Path $LeftPath) -or -not (Test-Path $RightPath)) {
+        return $false
+    }
+
+    try {
+        $leftHash = (Get-FileHash -LiteralPath $LeftPath -Algorithm SHA256).Hash
+        $rightHash = (Get-FileHash -LiteralPath $RightPath -Algorithm SHA256).Hash
+        return $leftHash -eq $rightHash
+    } catch {
+        return $false
+    }
 }
 
 function Get-MenuEnabledStates {
@@ -321,6 +343,40 @@ function Confirm-InstallSelection {
     }
 }
 
+function Download-LatestInstaller {
+    param(
+        [hashtable]$Ui
+    )
+
+    New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+    Write-Host $Ui.Downloading -ForegroundColor Cyan
+    Download-File $installerUrl $batPath
+    return $batPath
+}
+
+function Invoke-InstallerBatch {
+    param(
+        [string]$InstallerBatchPath
+    )
+
+    $oldSkipSelfUpdate = $env:AUTOVENCORD_SKIP_SELF_UPDATE
+    $oldNoPause = $env:AUTOVENCORD_NO_PAUSE
+
+    try {
+        $env:AUTOVENCORD_SKIP_SELF_UPDATE = "1"
+        $env:AUTOVENCORD_NO_PAUSE = "1"
+        & $InstallerBatchPath
+        $exitCode = $LASTEXITCODE
+
+        if ($exitCode -ne 0) {
+            throw "AutoVencord installer failed with exit code $exitCode"
+        }
+    } finally {
+        $env:AUTOVENCORD_SKIP_SELF_UPDATE = $oldSkipSelfUpdate
+        $env:AUTOVENCORD_NO_PAUSE = $oldNoPause
+    }
+}
+
 function Show-Menu {
     param(
         [hashtable]$Ui,
@@ -387,26 +443,8 @@ function Invoke-Install {
         [hashtable]$Ui
     )
 
-    New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
-    Write-Host $Ui.Downloading -ForegroundColor Cyan
-    Download-File $installerUrl $batPath
-
-    $oldSkipSelfUpdate = $env:AUTOVENCORD_SKIP_SELF_UPDATE
-    $oldNoPause = $env:AUTOVENCORD_NO_PAUSE
-
-    try {
-        $env:AUTOVENCORD_SKIP_SELF_UPDATE = "1"
-        $env:AUTOVENCORD_NO_PAUSE = "1"
-        & $batPath
-        $exitCode = $LASTEXITCODE
-
-        if ($exitCode -ne 0) {
-            throw "AutoVencord installer failed with exit code $exitCode"
-        }
-    } finally {
-        $env:AUTOVENCORD_SKIP_SELF_UPDATE = $oldSkipSelfUpdate
-        $env:AUTOVENCORD_NO_PAUSE = $oldNoPause
-    }
+    $downloadedInstallerPath = Download-LatestInstaller -Ui $Ui
+    Invoke-InstallerBatch -InstallerBatchPath $downloadedInstallerPath
 }
 
 function Invoke-Uninstall {
@@ -434,7 +472,14 @@ function Invoke-Update {
     )
 
     Write-Host $Ui.Updating -ForegroundColor Cyan
-    Invoke-Install -Ui $Ui
+    $downloadedInstallerPath = Download-LatestInstaller -Ui $Ui
+
+    if ((Test-Path $installedInstallerPath) -and (Test-SameFileHash -LeftPath $installedInstallerPath -RightPath $downloadedInstallerPath)) {
+        Write-Host $Ui.AlreadyLatest -ForegroundColor Green
+        return
+    }
+
+    Invoke-InstallerBatch -InstallerBatchPath $downloadedInstallerPath
 }
 
 function Open-InstallFolder {

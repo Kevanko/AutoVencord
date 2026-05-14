@@ -21,7 +21,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -SourceBatPath "%~f0"
 set "EXITCODE=%ERRORLEVEL%"
 del "%PS1%" >nul 2>&1
 
@@ -150,10 +150,15 @@ del "%~f0" >nul 2>nul
 #</SELFUPDATE>
 
 #<POWERSHELL>
+param(
+    [string]$SourceBatPath
+)
+
 $ErrorActionPreference = "Stop"
 
 $baseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $installerPath = Join-Path $baseDir "VencordInstallerCli.exe"
+$installerBatchCopyPath = Join-Path $baseDir "AutoVencord-OneClick.bat"
 $watchdogPath = Join-Path $baseDir "watchdog.ps1"
 $uninstallPath = Join-Path $baseDir "uninstall.bat"
 $taskName = "AutoVencord Watchdog"
@@ -381,6 +386,11 @@ function Invoke-VencordInstallerCli {
 New-Item -ItemType Directory -Force -Path $baseDir | Out-Null
 Write-SetupLog "Setup started"
 Stop-ExistingTask
+
+if ($SourceBatPath -and (Test-Path $SourceBatPath)) {
+    Copy-Item -LiteralPath $SourceBatPath -Destination $installerBatchCopyPath -Force
+    Write-SetupLog "Installer batch copied"
+}
 
 Write-Host "Downloading official Vencord installer..."
 Download-File $downloadUrl $installerPath
@@ -718,10 +728,18 @@ $uninstallContent = @"
 @echo off
 setlocal
 set "TASK_NAME=AutoVencord Watchdog"
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "if (Get-Command Unregister-ScheduledTask -ErrorAction SilentlyContinue) { Stop-ScheduledTask -TaskName '%TASK_NAME%' -ErrorAction SilentlyContinue ^| Out-Null; Unregister-ScheduledTask -TaskName '%TASK_NAME%' -Confirm:$false -ErrorAction SilentlyContinue ^| Out-Null } else { schtasks /End /TN ""%TASK_NAME%"" ^| Out-Null; schtasks /Delete /TN ""%TASK_NAME%"" /F ^| Out-Null }"
+set "BASE_DIR=%~dp0"
+echo Running AutoVencord uninstall...
+schtasks /End /TN "%TASK_NAME%" >nul 2>&1
+schtasks /Delete /TN "%TASK_NAME%" /F >nul 2>&1
 echo Removed: %TASK_NAME%
-pause
+del /f /q "%BASE_DIR%watchdog.ps1" >nul 2>&1
+del /f /q "%BASE_DIR%VencordInstallerCli.exe" >nul 2>&1
+del /f /q "%BASE_DIR%AutoVencord-OneClick.bat" >nul 2>&1
+del /f /q "%BASE_DIR%last-action.log" >nul 2>&1
+del /f /q "%BASE_DIR%last-action.previous.log" >nul 2>&1
+echo Removed files from: %BASE_DIR%
+pause >nul
 "@
 
 Set-Content -LiteralPath $watchdogPath -Value $watchdogContent -Encoding UTF8
