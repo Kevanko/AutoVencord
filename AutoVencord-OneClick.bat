@@ -352,20 +352,23 @@ function Invoke-VencordInstallerCli {
         [string]$DiscordRoot
     )
 
-    $previousNativeErrorPreference = $null
-    $hasNativeErrorPreference = Test-Path Variable:\PSNativeCommandUseErrorActionPreference
-
-    if ($hasNativeErrorPreference) {
-        $previousNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
-        $PSNativeCommandUseErrorActionPreference = $false
-    }
+    $stdoutPath = Join-Path $baseDir ("cli-stdout-" + [guid]::NewGuid().ToString() + ".log")
+    $stderrPath = Join-Path $baseDir ("cli-stderr-" + [guid]::NewGuid().ToString() + ".log")
 
     try {
-        $output = & $InstallerPath -install -location $DiscordRoot 2>&1
-        $exitCode = $LASTEXITCODE
+        $process = Start-Process -FilePath $InstallerPath -ArgumentList @("-install", "-location", $DiscordRoot) -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        $exitCode = $process.ExitCode
     } finally {
-        if ($hasNativeErrorPreference) {
-            $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
+        $output = @()
+
+        if (Test-Path $stdoutPath) {
+            $output += Get-Content -LiteralPath $stdoutPath -ErrorAction SilentlyContinue
+            Remove-Item $stdoutPath -Force -ErrorAction SilentlyContinue
+        }
+
+        if (Test-Path $stderrPath) {
+            $output += Get-Content -LiteralPath $stderrPath -ErrorAction SilentlyContinue
+            Remove-Item $stderrPath -Force -ErrorAction SilentlyContinue
         }
     }
 
@@ -586,20 +589,23 @@ function Patch-Discord {
 
     try {
         Write-Log "Starting patch for Discord at $discordRoot"
-        $previousNativeErrorPreference = $null
-        $hasNativeErrorPreference = Test-Path Variable:\PSNativeCommandUseErrorActionPreference
-
-        if ($hasNativeErrorPreference) {
-            $previousNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
-            $PSNativeCommandUseErrorActionPreference = $false
-        }
+        $stdoutPath = Join-Path $baseDir ("cli-stdout-" + [guid]::NewGuid().ToString() + ".log")
+        $stderrPath = Join-Path $baseDir ("cli-stderr-" + [guid]::NewGuid().ToString() + ".log")
 
         try {
-            $output = & $installer -install -location $discordRoot 2>&1
-            $exitCode = $LASTEXITCODE
+            $process = Start-Process -FilePath $installer -ArgumentList @("-install", "-location", $discordRoot) -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+            $exitCode = $process.ExitCode
         } finally {
-            if ($hasNativeErrorPreference) {
-                $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
+            $output = @()
+
+            if (Test-Path $stdoutPath) {
+                $output += Get-Content -LiteralPath $stdoutPath -ErrorAction SilentlyContinue
+                Remove-Item $stdoutPath -Force -ErrorAction SilentlyContinue
+            }
+
+            if (Test-Path $stderrPath) {
+                $output += Get-Content -LiteralPath $stderrPath -ErrorAction SilentlyContinue
+                Remove-Item $stderrPath -Force -ErrorAction SilentlyContinue
             }
         }
 
