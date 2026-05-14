@@ -422,8 +422,8 @@ function Get-MenuEnabledStates {
     return @(
         (-not $Status.InstalledOk),
         $Status.InstalledOk,
-        $Status.InstalledOk,
         $true,
+        $Status.InstalledOk,
         $true
     )
 }
@@ -517,12 +517,12 @@ function Get-MenuItemColor {
         return Get-UpdateColor -Status $Status
     }
 
-    if ($Index -eq 2) {
+    if ($Index -eq 3) {
         return [ConsoleColor]::Red
     }
 
     if ($Index -eq 4) {
-        return [ConsoleColor]::DarkGray
+        return [ConsoleColor]::White
     }
 
     return [ConsoleColor]::Gray
@@ -542,12 +542,12 @@ function Get-MenuSelectionBackground {
         return Get-UpdateColor -Status $Status
     }
 
-    if ($Index -eq 2) {
+    if ($Index -eq 3) {
         return [ConsoleColor]::Red
     }
 
     if ($Index -eq 4) {
-        return [ConsoleColor]::DarkGray
+        return [ConsoleColor]::White
     }
 
     return [ConsoleColor]::Cyan
@@ -876,7 +876,7 @@ function Open-InstallFolder {
 
 $ui = Get-UiText
 $autoAction = $env:AUTOVENCORD_MENU_ACTION
-$options = @($ui.Install, $ui.Update, $ui.Uninstall, $ui.OpenFolder, $ui.Exit)
+$options = @($ui.Install, $ui.Update, $ui.OpenFolder, $ui.Uninstall, $ui.Exit)
 $selectedIndex = 0
 
 while ($true) {
@@ -886,8 +886,8 @@ while ($true) {
         switch ($autoAction.ToLowerInvariant()) {
             "install" { $selection = 0 }
             "update" { $selection = 1 }
-            "uninstall" { $selection = 2 }
-            "open" { $selection = 3 }
+            "open" { $selection = 2 }
+            "uninstall" { $selection = 3 }
             "exit" { $selection = 4 }
         }
     }
@@ -907,7 +907,7 @@ while ($true) {
         }
     }
 
-    if ($selection -eq 3) {
+    if ($selection -eq 2) {
         Open-InstallFolder
 
         if ($autoAction) {
@@ -935,7 +935,7 @@ while ($true) {
                 continue
             }
         }
-    } elseif ($selection -eq 2) {
+    } elseif ($selection -eq 3) {
         Invoke-Uninstall -Ui $ui
         if (-not $autoAction) {
             if (Show-ActionResult -Ui $ui -Message $ui.UninstallDone -Color Green) {
