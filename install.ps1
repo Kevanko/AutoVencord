@@ -6,6 +6,8 @@ $batPath = Join-Path $tempDir "AutoVencord-OneClick.bat"
 $installedBaseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $installedInstallerPath = Join-Path $installedBaseDir "AutoVencord-OneClick.bat"
 $uninstallPath = Join-Path $installedBaseDir "uninstall.bat"
+$watchdogScriptPath = Join-Path $installedBaseDir "watchdog.ps1"
+$installedCliPath = Join-Path $installedBaseDir "VencordInstallerCli.exe"
 $windowTitle = "AutoVencord"
 $taskName = "AutoVencord Watchdog"
 
@@ -75,6 +77,7 @@ function Get-UiText {
 
     if ($language -eq "ru") {
         return @{
+            Language = "ru"
             BannerTitle = "AutoVencord"
             BannerHint = Join-CodePoints @(1057,1090,1088,1077,1083,1082,1080,32,1074,1074,1077,1088,1093,47,1074,1085,1080,1079,32,45,32,1074,1099,1073,1086,1088,44,32,69,110,116,101,114,32,45,32,1079,1072,1087,1091,1089,1082)
             SectionTitle = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1082,1072,32,1080,32,1086,1073,1089,1083,1091,1078,1080,1074,1072,1085,1080,1077)
@@ -95,10 +98,15 @@ function Get-UiText {
             RunningUninstall = Join-CodePoints @(1047,1072,1087,1091,1089,1082,1072,1102,32,1091,1076,1072,1083,1077,1085,1080,1077,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
             MissingUninstall = Join-CodePoints @(65,117,116,111,86,101,110,99,111,114,100,32,1085,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085,46)
             AlreadyLatest = Join-CodePoints @(1059,32,1074,1072,1089,32,1072,1082,1090,1091,1072,1083,1100,1085,1072,1103,32,1074,1077,1088,1089,1080,1103,46)
+            ConfirmInstallTitle = Join-CodePoints @(1042,1099,1073,1088,1072,1085,1072,32,1091,1089,1090,1072,1085,1086,1074,1082,1072,46)
+            ConfirmInstallEnter = Join-CodePoints @(1053,1072,1078,1084,1080,32,69,110,116,101,114,32,1077,1097,1077,32,1088,1072,1079,32,1076,1083,1103,32,1087,1086,1076,1090,1074,1077,1088,1078,1076,1077,1085,1080,1103,46)
+            ConfirmInstallEsc = Join-CodePoints @(1053,1072,1078,1084,1080,32,69,115,99,44,32,1095,1090,1086,1073,1099,32,1074,1077,1088,1085,1091,1090,1100,1089,1103,32,1085,1072,1079,1072,1076,46)
+            UpdateAvailableSuffix = " *"
         }
     }
 
     return @{
+        Language = "en"
         BannerTitle = "AutoVencord"
         BannerHint = "Use Up/Down arrows to move, Enter to run"
         SectionTitle = "Setup and Maintenance"
@@ -119,6 +127,10 @@ function Get-UiText {
         RunningUninstall = "Running AutoVencord uninstaller..."
         MissingUninstall = "AutoVencord is not installed."
         AlreadyLatest = "You already have the latest version."
+        ConfirmInstallTitle = "Install selected."
+        ConfirmInstallEnter = "Press Enter again to confirm installation."
+        ConfirmInstallEsc = "Press Esc to go back."
+        UpdateAvailableSuffix = " *"
     }
 }
 
@@ -152,7 +164,8 @@ function Get-StatusText {
         [hashtable]$Ui
     )
 
-    $isInstalled = Test-Path $uninstallPath
+    $hasCoreFiles = (Test-Path $installedInstallerPath) -or (Test-Path $watchdogScriptPath) -or (Test-Path $installedCliPath)
+    $isInstalled = (Test-Path $uninstallPath) -and $hasCoreFiles
     $watchdogState = Get-WatchdogState
     $installedValue = if ($isInstalled) { $Ui.Yes } else { $Ui.No }
 
@@ -216,6 +229,31 @@ function Test-SameFileHash {
         $leftHash = (Get-FileHash -LiteralPath $LeftPath -Algorithm SHA256).Hash
         $rightHash = (Get-FileHash -LiteralPath $RightPath -Algorithm SHA256).Hash
         return $leftHash -eq $rightHash
+    } catch {
+        return $false
+    }
+}
+
+function Get-UpdateAvailability {
+    param(
+        [pscustomobject]$Status,
+        [hashtable]$Ui
+    )
+
+    if (-not $Status.InstalledOk) {
+        return $false
+    }
+
+    try {
+        $updateCheckPath = Join-Path $tempDir "AutoVencord-update-check.bat"
+        New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+        Download-File $installerUrl $updateCheckPath
+
+        if (-not (Test-Path $installedInstallerPath)) {
+            return $true
+        }
+
+        return (-not (Test-SameFileHash -LeftPath $installedInstallerPath -RightPath $updateCheckPath))
     } catch {
         return $false
     }
@@ -317,17 +355,9 @@ function Confirm-InstallSelection {
     Write-PaddedLine -Text ("{0}" -f $Ui.BannerTitle).PadLeft(([Math]::Floor(($width + $Ui.BannerTitle.Length) / 2))) -ForegroundColor Cyan -Width $width
     Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
     Write-PaddedLine -Text "" -Width $width
-
-    if ($Ui.Language -eq "ru") {
-        Write-PaddedLine -Text "  Выбрана установка." -ForegroundColor Yellow -Width $width
-        Write-PaddedLine -Text "  Нажми Enter еще раз для подтверждения." -ForegroundColor Gray -Width $width
-        Write-PaddedLine -Text "  Нажми Esc, чтобы вернуться назад." -ForegroundColor DarkGray -Width $width
-    } else {
-        Write-PaddedLine -Text "  Install selected." -ForegroundColor Yellow -Width $width
-        Write-PaddedLine -Text "  Press Enter again to confirm installation." -ForegroundColor Gray -Width $width
-        Write-PaddedLine -Text "  Press Esc to go back." -ForegroundColor DarkGray -Width $width
-    }
-
+    Write-PaddedLine -Text ("  " + $Ui.ConfirmInstallTitle) -ForegroundColor Yellow -Width $width
+    Write-PaddedLine -Text ("  " + $Ui.ConfirmInstallEnter) -ForegroundColor Gray -Width $width
+    Write-PaddedLine -Text ("  " + $Ui.ConfirmInstallEsc) -ForegroundColor DarkGray -Width $width
     Write-PaddedLine -Text "" -Width $width
 
     while ($true) {
@@ -385,6 +415,13 @@ function Show-Menu {
 
     $firstRender = $true
     $status = Get-StatusText -Ui $Ui
+    $updateAvailable = Get-UpdateAvailability -Status $status -Ui $Ui
+    $menuOptions = @($Options[0], $Options[1], $Options[2], $Options[3])
+
+    if ($updateAvailable) {
+        $menuOptions[1] = $menuOptions[1] + $Ui.UpdateAvailableSuffix
+    }
+
     $enabledStates = Get-MenuEnabledStates -Status $status
     $index = 0
 
@@ -403,7 +440,7 @@ function Show-Menu {
     Clear-PendingConsoleInput
 
     while ($true) {
-        Render-Menu -Ui $Ui -Status $status -Options $Options -EnabledStates $enabledStates -SelectedIndex $index -FirstRender $firstRender
+        Render-Menu -Ui $Ui -Status $status -Options $menuOptions -EnabledStates $enabledStates -SelectedIndex $index -FirstRender $firstRender
         $firstRender = $false
 
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
@@ -458,8 +495,15 @@ function Invoke-Uninstall {
     }
 
     Write-Host $Ui.RunningUninstall -ForegroundColor Yellow
-    & $uninstallPath
-    $exitCode = $LASTEXITCODE
+    $oldNoPause = $env:AUTOVENCORD_NO_PAUSE
+
+    try {
+        $env:AUTOVENCORD_NO_PAUSE = "1"
+        & $uninstallPath
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $env:AUTOVENCORD_NO_PAUSE = $oldNoPause
+    }
 
     if ($exitCode -ne 0) {
         throw "AutoVencord uninstaller failed with exit code $exitCode"

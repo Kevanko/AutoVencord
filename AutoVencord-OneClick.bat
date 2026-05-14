@@ -729,6 +729,8 @@ $uninstallContent = @"
 setlocal
 set "TASK_NAME=AutoVencord Watchdog"
 set "BASE_DIR=%~dp0"
+set "SELF=%~f0"
+set "CLEANUP=%TEMP%\AutoVencord-cleanup-%RANDOM%%RANDOM%.cmd"
 echo Running AutoVencord uninstall...
 schtasks /End /TN "%TASK_NAME%" >nul 2>&1
 schtasks /Delete /TN "%TASK_NAME%" /F >nul 2>&1
@@ -738,8 +740,14 @@ del /f /q "%BASE_DIR%VencordInstallerCli.exe" >nul 2>&1
 del /f /q "%BASE_DIR%AutoVencord-OneClick.bat" >nul 2>&1
 del /f /q "%BASE_DIR%last-action.log" >nul 2>&1
 del /f /q "%BASE_DIR%last-action.previous.log" >nul 2>&1
+> "%CLEANUP%" echo @echo off
+>> "%CLEANUP%" echo ping 127.0.0.1 -n 3 ^>nul
+>> "%CLEANUP%" echo del /f /q "%SELF%" ^>nul 2^>^&1
+>> "%CLEANUP%" echo rmdir "%BASE_DIR%" ^>nul 2^>^&1
+>> "%CLEANUP%" echo del /f /q "%%~f0" ^>nul 2^>^&1
+start "" /min cmd /c "%CLEANUP%"
 echo Removed files from: %BASE_DIR%
-pause >nul
+if /I not "%AUTOVENCORD_NO_PAUSE%"=="1" pause >nul
 "@
 
 Set-Content -LiteralPath $watchdogPath -Value $watchdogContent -Encoding UTF8
