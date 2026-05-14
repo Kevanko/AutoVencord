@@ -668,10 +668,11 @@ function Invoke-Update {
 
     if ((Test-Path $installedComparablePath) -and (Test-SameFileHash -LeftPath $installedComparablePath -RightPath $downloadedInstallerPath)) {
         Write-Host $Ui.AlreadyLatest -ForegroundColor Green
-        return
+        return $false
     }
 
     Invoke-SetupScript -SetupScriptPath $downloadedInstallerPath
+    return $true
 }
 
 function Open-InstallFolder {
@@ -720,7 +721,12 @@ while ($true) {
     if ($selection -eq 0) {
         Invoke-Install -Ui $ui
     } elseif ($selection -eq 1) {
-        Invoke-Update -Ui $ui
+        $updateApplied = Invoke-Update -Ui $ui
+
+        if (-not $autoAction -and -not $updateApplied) {
+            Start-Sleep -Milliseconds 1200
+            continue
+        }
     } elseif ($selection -eq 2) {
         Invoke-Uninstall -Ui $ui
     }
