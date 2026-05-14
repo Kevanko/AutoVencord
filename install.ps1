@@ -1,5 +1,8 @@
 $ErrorActionPreference = "Stop"
 
+$installerPayloadRef = "ef734a8"
+$installerExpectedHash = "2C6CA673FBF64701C0AFD738F2A296C409F524D76ECBA08633BA84503751242C"
+$installerPinnedUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/$installerPayloadRef/AutoVencord-Setup.ps1"
 $installerUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/AutoVencord-Setup.ps1"
 $installerFallbackUrl = "https://github.com/Kevanko/AutoVencord/raw/main/AutoVencord-Setup.ps1"
 $installerFreshMarker = "function Invoke-SchtasksSafe {"
@@ -37,7 +40,8 @@ function Download-File($url, $outFile) {
 
 function Test-InstallerPayload {
     param(
-        [string]$Path
+        [string]$Path,
+        [switch]$RequireExpectedHash
     )
 
     if (-not (Test-Path $Path)) {
@@ -46,7 +50,16 @@ function Test-InstallerPayload {
 
     try {
         $content = Get-Content -LiteralPath $Path -Raw
-        return $content.Contains($installerFreshMarker)
+        if (-not $content.Contains($installerFreshMarker)) {
+            return $false
+        }
+
+        if ($RequireExpectedHash) {
+            $hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+            return $hash.ToUpperInvariant() -eq $installerExpectedHash
+        }
+
+        return $true
     } catch {
         return $false
     }
@@ -54,6 +67,7 @@ function Test-InstallerPayload {
 
 function Get-InstallerCandidateUrls {
     return @(
+        $installerPinnedUrl,
         $installerUrl,
         $installerFallbackUrl,
         ("{0}?raw=1" -f $installerFallbackUrl)
@@ -78,7 +92,7 @@ function Download-FreshInstallerPayload {
         try {
             Download-File $url $OutFile
 
-            if (Test-InstallerPayload -Path $OutFile) {
+            if (Test-InstallerPayload -Path $OutFile -RequireExpectedHash) {
                 return
             }
         } catch {
