@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
-$installerPayloadRef = "f391c3c"
-$installerExpectedHash = "C72A49FA8EB26645FA6BA5331972576A68636C441E431A289FADFAEA5CBCAB5E"
+$installerPayloadRef = "7d18f3d"
+$installerExpectedHash = "EED181BE04A5FA54FEA16B5DC885E8D953E6F46D5765AA8656FC8EB24FD67E37"
 $installerPinnedUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/$installerPayloadRef/AutoVencord-Setup.ps1"
 $installerUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/AutoVencord-Setup.ps1"
 $installerFallbackUrl = "https://github.com/Kevanko/AutoVencord/raw/main/AutoVencord-Setup.ps1"
