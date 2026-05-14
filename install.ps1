@@ -1150,32 +1150,43 @@ function Invoke-VencordPatchUninstall {
     Write-Host $Ui.UninstallingVencord -ForegroundColor Yellow
 
     New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+    $stdoutPath = Join-Path $tempDir ("vencord-uninstall-{0}.out.log" -f ([guid]::NewGuid().ToString("N")))
+    $stderrPath = Join-Path $tempDir ("vencord-uninstall-{0}.err.log" -f ([guid]::NewGuid().ToString("N")))
+    $timeoutMs = 90000
+    $pollMs = 500
+    $elapsedMs = 0
 
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = $installedCliPath
-    $startInfo.Arguments = ('-uninstall -location "{0}"' -f $discordRoot)
+    $startInfo.FileName = $env:ComSpec
+    $startInfo.Arguments = ('/d /c ""{0}" -uninstall -location "{1}" 1>"{2}" 2>"{3}""' -f $installedCliPath, $discordRoot, $stdoutPath, $stderrPath)
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
 
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $startInfo
     [void]$process.Start()
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
 
-    if (-not $process.WaitForExit(180000)) {
+    while (-not $process.HasExited -and $elapsedMs -lt $timeoutMs) {
+        Start-Sleep -Milliseconds $pollMs
+        $elapsedMs += $pollMs
+
+        if (($elapsedMs % 2500) -eq 0) {
+            Write-Host "." -NoNewline -ForegroundColor DarkGray
+        }
+    }
+
+    if (-not $process.HasExited) {
         try {
             $process.Kill()
         } catch {}
-
-        throw "Vencord CLI uninstall timed out."
     }
 
-    $stdout = $stdoutTask.Result
-    $stderr = $stderrTask.Result
-    $exitCode = $process.ExitCode
+    $stdout = if (Test-Path $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue } else { "" }
+    $stderr = if (Test-Path $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue } else { "" }
+    $exitCode = if ($process.HasExited) { $process.ExitCode } else { $null }
+
+    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+    Write-Host ""
 
     if ($stdout) {
         Write-Host $stdout.TrimEnd()
@@ -1188,7 +1199,11 @@ function Invoke-VencordPatchUninstall {
     $combinedOutput = (($stdout, $stderr) -join "`n")
     $reportedSuccess = ($combinedOutput -match "Successfully unpatched" -or $combinedOutput -match "Success")
 
-    if ($exitCode -ne 0 -and -not $reportedSuccess) {
+    if (-not $process.HasExited -and -not $reportedSuccess) {
+        throw "Vencord CLI uninstall timed out."
+    }
+
+    if ($null -ne $exitCode -and $exitCode -ne 0 -and -not $reportedSuccess) {
         throw "Vencord CLI uninstall failed with exit code $exitCode."
     }
 
