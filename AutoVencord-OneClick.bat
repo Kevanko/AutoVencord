@@ -21,7 +21,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -SourceBatPath "%~f0" -SourceSetupPath "%PS1%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -SourceBatPath "%~f0" -SourceSetupPath "%PS1%" -PatchNow
 set "EXITCODE=%ERRORLEVEL%"
 del "%PS1%" >nul 2>&1
 
@@ -197,7 +197,8 @@ del "%~f0" >nul 2>nul
 #<POWERSHELL>
 param(
     [string]$SourceBatPath,
-    [string]$SourceSetupPath
+    [string]$SourceSetupPath,
+    [switch]$PatchNow
 )
 
 $ErrorActionPreference = "Stop"
@@ -862,37 +863,42 @@ Set-Content -LiteralPath $watchdogPath -Value $watchdogContent -Encoding UTF8
 Set-Content -LiteralPath $uninstallPath -Value $uninstallContent -Encoding ASCII
 Write-SetupLog "Files written"
 
-if (Test-Path $discordRoot) {
-    Get-Process Discord -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+if ($PatchNow) {
+    if (Test-Path $discordRoot) {
+        Get-Process Discord -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-    if (Wait-DiscordReadyForInitialPatch) {
-        Write-Host "Patching Discord with official Vencord CLI..."
-        Write-SetupLog "Initial patch started"
-        $result = Invoke-VencordInstallerCli -InstallerPath $installerPath -DiscordRoot $discordRoot
-        $output = $result.Output
-        $exitCode = $result.ExitCode
+        if (Wait-DiscordReadyForInitialPatch) {
+            Write-Host "Patching Discord with official Vencord CLI..."
+            Write-SetupLog "Initial patch started"
+            $result = Invoke-VencordInstallerCli -InstallerPath $installerPath -DiscordRoot $discordRoot
+            $output = $result.Output
+            $exitCode = $result.ExitCode
 
-        if ($output) {
-            $output | ForEach-Object { Write-SetupLog "CLI: $_" }
-        }
+            if ($output) {
+                $output | ForEach-Object { Write-SetupLog "CLI: $_" }
+            }
 
-        if ($exitCode -ne 0) {
-            Write-Warning "Initial patch failed. Watchdog will retry when Discord is ready."
-            Write-SetupLog "Initial patch failed with exit code $exitCode"
+            if ($exitCode -ne 0) {
+                Write-Warning "Initial patch failed. Watchdog will retry when Discord is ready."
+                Write-SetupLog "Initial patch failed with exit code $exitCode"
+            } else {
+                Write-SetupLog "Initial patch finished"
+            }
         } else {
-            Write-SetupLog "Initial patch finished"
+            Write-Warning "Discord looks busy or incomplete. Watchdog will patch it automatically when it is ready."
+            Write-SetupLog "Initial patch postponed because Discord was not ready"
         }
     } else {
-        Write-Warning "Discord looks busy or incomplete. Watchdog will patch it automatically when it is ready."
-        Write-SetupLog "Initial patch postponed because Discord was not ready"
+        Write-Warning "Discord folder was not found. Watchdog will wait until Discord is installed."
+        Write-SetupLog "Discord folder not found during setup"
     }
-} else {
-    Write-Warning "Discord folder was not found. Watchdog will wait until Discord is installed."
-    Write-SetupLog "Discord folder not found during setup"
-}
 
-Install-Task -TaskName $taskName -ScriptPath $watchdogPath
-Write-SetupLog "Task installed"
+    Install-Task -TaskName $taskName -ScriptPath $watchdogPath
+    Write-SetupLog "Task installed"
+} else {
+    Write-Host "Patch and watchdog start skipped. Use the installer menu Install or Update action to apply AutoVencord." -ForegroundColor Yellow
+    Write-SetupLog "Patch and task start skipped because PatchNow was not requested"
+}
 
 Write-Host ""
 Write-Host "AutoVencord installed successfully." -ForegroundColor Green

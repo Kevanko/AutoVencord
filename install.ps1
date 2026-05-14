@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $installerPayloadRef = "ef734a8"
-$installerExpectedHash = "2C6CA673FBF64701C0AFD738F2A296C409F524D76ECBA08633BA84503751242C"
+$installerExpectedHash = "C72A49FA8EB26645FA6BA5331972576A68636C441E431A289FADFAEA5CBCAB5E"
 $installerPinnedUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/$installerPayloadRef/AutoVencord-Setup.ps1"
 $installerUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/AutoVencord-Setup.ps1"
 $installerFallbackUrl = "https://github.com/Kevanko/AutoVencord/raw/main/AutoVencord-Setup.ps1"
@@ -451,11 +451,11 @@ function Get-UpdateColor {
     )
 
     if ($Status.UpdateState -eq "Available") {
-        return [ConsoleColor]::Green
+        return [ConsoleColor]::Yellow
     }
 
     if ($Status.UpdateState -eq "Current") {
-        return [ConsoleColor]::Yellow
+        return [ConsoleColor]::Green
     }
 
     return [ConsoleColor]::DarkGray
@@ -535,9 +535,9 @@ function Render-Menu {
 
         $lineColor = if ($i -eq 1) { Get-UpdateColor -Status $Status } else { [ConsoleColor]::Gray }
         $selectedBackground = if ($i -eq 1 -and $Status.UpdateState -eq "Available") {
-            [ConsoleColor]::Green
-        } elseif ($i -eq 1 -and $Status.UpdateState -eq "Current") {
             [ConsoleColor]::Yellow
+        } elseif ($i -eq 1 -and $Status.UpdateState -eq "Current") {
+            [ConsoleColor]::Green
         } else {
             [ConsoleColor]::Cyan
         }
@@ -602,7 +602,8 @@ function Download-LatestInstaller {
 
 function Invoke-SetupScript {
     param(
-        [string]$SetupScriptPath
+        [string]$SetupScriptPath,
+        [switch]$PatchNow
     )
 
     $oldSkipSelfUpdate = $env:AUTOVENCORD_SKIP_SELF_UPDATE
@@ -611,7 +612,13 @@ function Invoke-SetupScript {
     try {
         $env:AUTOVENCORD_SKIP_SELF_UPDATE = "1"
         $env:AUTOVENCORD_NO_PAUSE = "1"
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $SetupScriptPath -SourceSetupPath $SetupScriptPath
+        $setupArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $SetupScriptPath, "-SourceSetupPath", $SetupScriptPath)
+
+        if ($PatchNow) {
+            $setupArgs += "-PatchNow"
+        }
+
+        & powershell.exe @setupArgs
         $exitCode = $LASTEXITCODE
 
         if ($exitCode -ne 0) {
@@ -694,7 +701,7 @@ function Invoke-Install {
     )
 
     $downloadedInstallerPath = Download-LatestInstaller -Ui $Ui -AllowLocalFallback
-    Invoke-SetupScript -SetupScriptPath $downloadedInstallerPath
+    Invoke-SetupScript -SetupScriptPath $downloadedInstallerPath -PatchNow
 }
 
 function Invoke-Uninstall {
@@ -736,7 +743,7 @@ function Invoke-Update {
         return $false
     }
 
-    Invoke-SetupScript -SetupScriptPath $downloadedInstallerPath
+    Invoke-SetupScript -SetupScriptPath $downloadedInstallerPath -PatchNow
     return $true
 }
 
