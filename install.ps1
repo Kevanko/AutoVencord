@@ -177,6 +177,13 @@ function Get-UiText {
             Install = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1080,1090,1100)
             Update = Join-CodePoints @(1054,1073,1085,1086,1074,1080,1090,1100)
             Uninstall = Join-CodePoints @(1059,1076,1072,1083,1080,1090,1100)
+            UninstallMenuTitle = Join-CodePoints @(1059,1076,1072,1083,1077,1085,1080,1077)
+            UninstallAutoVencord = Join-CodePoints @(1058,1086,1083,1100,1082,1086,32,65,117,116,111,86,101,110,99,111,114,100)
+            UninstallBoth = Join-CodePoints @(65,117,116,111,86,101,110,99,111,114,100,32,43,32,1089,1085,1103,1090,1100,32,86,101,110,99,111,114,100)
+            Back = Join-CodePoints @(1053,1072,1079,1072,1076)
+            UninstallBothUnavailable = Join-CodePoints @(86,101,110,99,111,114,100,32,1084,1086,1078,1085,1086,32,1089,1085,1103,1090,1100,32,1090,1086,1083,1100,1082,1086,32,1082,1086,1075,1076,1072,32,68,105,115,99,111,114,100,32,1080,32,86,101,110,99,111,114,100,73,110,115,116,97,108,108,101,114,67,108,105,46,101,120,101,32,1076,1086,1089,1090,1091,1087,1085,1099,46)
+            UninstallingVencord = Join-CodePoints @(1057,1085,1080,1084,1072,1102,32,1087,1072,1090,1095,32,86,101,110,99,111,114,100,46,46,46)
+            VencordUninstallDone = Join-CodePoints @(1055,1072,1090,1095,32,86,101,110,99,111,114,100,32,1089,1085,1103,1090,46)
             OpenFolder = Join-CodePoints @(1054,1090,1082,1088,1099,1090,1100,32,1087,1072,1087,1082,1091)
             Exit = Join-CodePoints @(1042,1099,1093,1086,1076)
             Downloading = Join-CodePoints @(1057,1082,1072,1095,1080,1074,1072,1102,32,1072,1082,1090,1091,1072,1083,1100,1085,1099,1081,32,1091,1089,1090,1072,1085,1086,1074,1097,1080,1082,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
@@ -224,6 +231,13 @@ function Get-UiText {
         Install = "Install"
         Update = "Update"
         Uninstall = "Uninstall"
+        UninstallMenuTitle = "Uninstall"
+        UninstallAutoVencord = "AutoVencord only"
+        UninstallBoth = "AutoVencord + remove Vencord"
+        Back = "Back"
+        UninstallBothUnavailable = "Vencord can be removed only when Discord and VencordInstallerCli.exe are available."
+        UninstallingVencord = "Removing Vencord patch..."
+        VencordUninstallDone = "Vencord patch removed."
         OpenFolder = "Open Folder"
         Exit = "Exit"
         Downloading = "Downloading latest AutoVencord installer..."
@@ -793,6 +807,132 @@ function Render-Menu {
     Write-PaddedLine -Text "" -Width $width
 }
 
+function Test-CanUninstallVencordPatch {
+    $discord = Get-DiscordPreflight
+    return ((Test-Path $installedCliPath) -and $discord.State -eq "Ready")
+}
+
+function Get-UninstallMenuItemColor {
+    param(
+        [int]$Index,
+        [bool[]]$EnabledStates
+    )
+
+    if (-not $EnabledStates[$Index]) {
+        return [ConsoleColor]::DarkGray
+    }
+
+    if ($Index -eq 2) {
+        return [ConsoleColor]::White
+    }
+
+    return [ConsoleColor]::Red
+}
+
+function Render-UninstallMenu {
+    param(
+        [hashtable]$Ui,
+        [string[]]$Options,
+        [bool[]]$EnabledStates,
+        [int]$SelectedIndex,
+        [bool]$FirstRender
+    )
+
+    $rawUi = $Host.UI.RawUI
+    $width = [Math]::Max(62, $rawUi.WindowSize.Width - 1)
+
+    if ($FirstRender) {
+        Clear-Host
+    }
+
+    $rawUi.CursorPosition = New-Object System.Management.Automation.Host.Coordinates 0, 0
+
+    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
+    Write-PaddedLine -Text ("{0}" -f $Ui.BannerTitle).PadLeft(([Math]::Floor(($width + $Ui.BannerTitle.Length) / 2))) -ForegroundColor Cyan -Width $width
+    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
+    Write-PaddedLine -Text "" -Width $width
+    Write-PaddedLine -Text $Ui.BannerHint -ForegroundColor DarkGray -Width $width
+    Write-PaddedLine -Text "" -Width $width
+    Write-PaddedLine -Text $Ui.UninstallMenuTitle -ForegroundColor Red -Width $width
+    Write-PaddedLine -Text "" -Width $width
+
+    if (-not $EnabledStates[1]) {
+        Write-PaddedLine -Text $Ui.UninstallBothUnavailable -ForegroundColor DarkYellow -Width $width
+        Write-PaddedLine -Text "" -Width $width
+    }
+
+    for ($i = 0; $i -lt $Options.Length; $i++) {
+        $label = $Options[$i]
+        $enabled = $EnabledStates[$i]
+        $marker = if ($i -eq $SelectedIndex) { " >>" } else { "   " }
+        $contentWidth = [Math]::Max(20, $width - $marker.Length)
+        $left = ("  {0}" -f $label)
+
+        if ($left.Length -gt $contentWidth) {
+            $left = $left.Substring(0, $contentWidth)
+        }
+
+        $line = $left.PadRight($contentWidth) + $marker
+        $lineColor = Get-UninstallMenuItemColor -Index $i -EnabledStates $EnabledStates
+        $selectedBackground = if ($i -eq 2) { [ConsoleColor]::White } else { [ConsoleColor]::Red }
+        $selectedForeground = if ($selectedBackground -eq [ConsoleColor]::White) { [ConsoleColor]::Black } else { [ConsoleColor]::White }
+
+        if (-not $enabled) {
+            Write-PaddedLine -Text $line -ForegroundColor DarkGray -Width $width
+        } elseif ($i -eq $SelectedIndex) {
+            Write-SelectedLine -Text $line -Width $width -ForegroundColor $selectedForeground -BackgroundColor $selectedBackground
+        } else {
+            Write-PaddedLine -Text $line -ForegroundColor $lineColor -Width $width
+        }
+    }
+
+    Write-PaddedLine -Text "" -Width $width
+    Write-PaddedLine -Text "" -Width $width
+}
+
+function Show-UninstallMenu {
+    param(
+        [hashtable]$Ui
+    )
+
+    $options = @($Ui.UninstallAutoVencord, $Ui.UninstallBoth, $Ui.Back)
+    $enabledStates = @($true, (Test-CanUninstallVencordPatch), $true)
+    $index = Resolve-MenuIndex -InitialIndex 0 -EnabledStates $enabledStates
+    $firstRender = $true
+
+    while ($true) {
+        $Host.UI.RawUI.WindowTitle = $windowTitle
+        Render-UninstallMenu -Ui $Ui -Options $options -EnabledStates $enabledStates -SelectedIndex $index -FirstRender:$firstRender
+        $firstRender = $false
+        Clear-PendingConsoleInput
+        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+
+        if ($key.VirtualKeyCode -eq 27) {
+            return 2
+        }
+
+        if ($key.VirtualKeyCode -eq 13 -and $enabledStates[$index]) {
+            return $index
+        }
+
+        if ($key.VirtualKeyCode -eq 38) {
+            for ($i = $index - 1; $i -ge 0; $i--) {
+                if ($enabledStates[$i]) {
+                    $index = $i
+                    break
+                }
+            }
+        } elseif ($key.VirtualKeyCode -eq 40) {
+            for ($i = $index + 1; $i -lt $options.Length; $i++) {
+                if ($enabledStates[$i]) {
+                    $index = $i
+                    break
+                }
+            }
+        }
+    }
+}
+
 function Confirm-InstallSelection {
     param(
         [hashtable]$Ui
@@ -996,6 +1136,58 @@ function Invoke-Install {
     Invoke-SetupScript -SetupScriptPath $downloadedInstallerPath -PatchNow
 }
 
+function Invoke-VencordPatchUninstall {
+    param(
+        [hashtable]$Ui
+    )
+
+    Assert-DiscordReady -Ui $Ui
+
+    if (-not (Test-Path $installedCliPath)) {
+        throw $Ui.UninstallBothUnavailable
+    }
+
+    Write-Host $Ui.UninstallingVencord -ForegroundColor Yellow
+
+    $stdoutPath = Join-Path $tempDir ("vencord-uninstall-{0}.out.log" -f ([guid]::NewGuid().ToString("N")))
+    $stderrPath = Join-Path $tempDir ("vencord-uninstall-{0}.err.log" -f ([guid]::NewGuid().ToString("N")))
+    New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+
+    $process = Start-Process -FilePath $installedCliPath `
+        -ArgumentList @("-uninstall", "-location", $discordRoot) `
+        -PassThru `
+        -NoNewWindow `
+        -RedirectStandardOutput $stdoutPath `
+        -RedirectStandardError $stderrPath
+
+    if (-not $process.WaitForExit(180000)) {
+        try {
+            $process.Kill()
+        } catch {}
+
+        throw "Vencord CLI uninstall timed out."
+    }
+
+    $stdout = if (Test-Path $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue } else { "" }
+    $stderr = if (Test-Path $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue } else { "" }
+
+    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+
+    if ($stdout) {
+        Write-Host $stdout.TrimEnd()
+    }
+
+    if ($stderr) {
+        Write-Host $stderr.TrimEnd() -ForegroundColor Yellow
+    }
+
+    if ($process.ExitCode -ne 0) {
+        throw "Vencord CLI uninstall failed with exit code $($process.ExitCode)."
+    }
+
+    Write-Host $Ui.VencordUninstallDone -ForegroundColor Green
+}
+
 function Invoke-Uninstall {
     param(
         [hashtable]$Ui
@@ -1107,6 +1299,21 @@ while ($true) {
             }
         }
     } elseif ($selection -eq 3) {
+        if (-not $autoAction) {
+            $uninstallSelection = Show-UninstallMenu -Ui $ui
+            $selectedIndex = 3
+
+            if ($uninstallSelection -eq 2) {
+                continue
+            }
+
+            Clear-Host
+
+            if ($uninstallSelection -eq 1) {
+                Invoke-VencordPatchUninstall -Ui $ui
+            }
+        }
+
         Invoke-Uninstall -Ui $ui
         if (-not $autoAction) {
             if (Show-ActionResult -Ui $ui -Message $ui.UninstallDone -Color Green) {

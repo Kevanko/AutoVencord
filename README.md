@@ -64,7 +64,15 @@ explorer "$env:LOCALAPPDATA\AutoVencord"
 
 ## Uninstall
 
-Use the menu, or run:
+Use `Uninstall` in the menu. It opens a small choice screen:
+
+- `AutoVencord only`
+- `AutoVencord + remove Vencord`
+- `Back`
+
+The second option uses the official Vencord CLI and is available only when Discord is installed and ready.
+
+You can also remove only AutoVencord with:
 
 ```bat
 %LOCALAPPDATA%\AutoVencord\uninstall.bat
@@ -140,7 +148,15 @@ explorer "$env:LOCALAPPDATA\AutoVencord"
 
 ## Удаление
 
-Через меню или командой:
+Нажми `Удалить` в меню. Откроется выбор:
+
+- `Только AutoVencord`
+- `AutoVencord + снять Vencord`
+- `Назад`
+
+Второй вариант использует официальный Vencord CLI и доступен только когда Discord установлен и готов.
+
+Удалить только AutoVencord можно и командой:
 
 ```bat
 %LOCALAPPDATA%\AutoVencord\uninstall.bat
