@@ -184,6 +184,11 @@ function Get-UiText {
             UninstallBothUnavailable = Join-CodePoints @(86,101,110,99,111,114,100,32,1084,1086,1078,1085,1086,32,1089,1085,1103,1090,1100,32,1090,1086,1083,1100,1082,1086,32,1082,1086,1075,1076,1072,32,68,105,115,99,111,114,100,32,1080,32,86,101,110,99,111,114,100,73,110,115,116,97,108,108,101,114,67,108,105,46,101,120,101,32,1076,1086,1089,1090,1091,1087,1085,1099,46)
             UninstallingVencord = Join-CodePoints @(1057,1085,1080,1084,1072,1102,32,1087,1072,1090,1095,32,86,101,110,99,111,114,100,46,46,46)
             VencordUninstallDone = Join-CodePoints @(1055,1072,1090,1095,32,86,101,110,99,111,114,100,32,1089,1085,1103,1090,46)
+            ClosingDiscord = Join-CodePoints @(1047,1072,1082,1088,1099,1074,1072,1102,32,68,105,115,99,111,114,100,32,1087,1077,1088,1077,1076,32,1089,1085,1103,1090,1080,1077,1084,32,1087,1072,1090,1095,1072,46,46,46)
+            StoppingWatchdog = Join-CodePoints @(1054,1089,1090,1072,1085,1072,1074,1083,1080,1074,1072,1102,32,65,117,116,111,86,101,110,99,111,114,100,32,87,97,116,99,104,100,111,103,46,46,46)
+            RestoringAsarBackup = Join-CodePoints @(1042,1086,1089,1089,1090,1072,1085,1072,1074,1083,1080,1074,1072,1102,32,1086,1088,1080,1075,1080,1085,1072,1083,1100,1085,1099,1081,32,97,112,112,46,97,115,97,114,32,1080,1079,32,95,97,112,112,46,97,115,97,114,46,46,46)
+            VencordStillPatched = Join-CodePoints @(86,101,110,99,111,114,100,32,1074,1089,1105,32,1077,1097,1105,32,1085,1072,1081,1076,1077,1085,32,1087,1086,1089,1083,1077,32,1089,1085,1103,1090,1080,1103,32,1087,1072,1090,1095,1072,46)
+            MissingAsarBackup = Join-CodePoints @(1053,1077,32,1085,1072,1081,1076,1077,1085,32,1088,1077,1079,1077,1088,1074,1085,1099,1081,32,95,97,112,112,46,97,115,97,114,32,1076,1083,1103,32,1074,1086,1089,1089,1090,1072,1085,1086,1074,1083,1077,1085,1080,1103,32,68,105,115,99,111,114,100,46)
             OpenFolder = Join-CodePoints @(1054,1090,1082,1088,1099,1090,1100,32,1087,1072,1087,1082,1091)
             Exit = Join-CodePoints @(1042,1099,1093,1086,1076)
             Downloading = Join-CodePoints @(1057,1082,1072,1095,1080,1074,1072,1102,32,1072,1082,1090,1091,1072,1083,1100,1085,1099,1081,32,1091,1089,1090,1072,1085,1086,1074,1097,1080,1082,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
@@ -238,6 +243,11 @@ function Get-UiText {
         UninstallBothUnavailable = "Vencord can be removed only when Discord and VencordInstallerCli.exe are available."
         UninstallingVencord = "Removing Vencord patch..."
         VencordUninstallDone = "Vencord patch removed."
+        ClosingDiscord = "Closing Discord before removing the patch..."
+        StoppingWatchdog = "Stopping AutoVencord Watchdog..."
+        RestoringAsarBackup = "Restoring original app.asar from _app.asar..."
+        VencordStillPatched = "Vencord is still detected after removing the patch."
+        MissingAsarBackup = "Could not find _app.asar backup to restore Discord."
         OpenFolder = "Open Folder"
         Exit = "Exit"
         Downloading = "Downloading latest AutoVencord installer..."
@@ -933,6 +943,125 @@ function Show-UninstallMenu {
     }
 }
 
+function Stop-AutoVencordWatchdogForUninstall {
+    param(
+        [hashtable]$Ui
+    )
+
+    Write-Host $Ui.StoppingWatchdog -ForegroundColor Yellow
+
+    if (Get-Command Stop-ScheduledTask -ErrorAction SilentlyContinue) {
+        Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    }
+
+    & schtasks.exe /End /TN $taskName 2>$null | Out-Null
+
+    try {
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object {
+                ($_.Name -in @("powershell.exe", "pwsh.exe")) -and
+                (
+                    ($_.CommandLine -like "*AutoVencord*" -and $_.CommandLine -like "*watchdog.ps1*") -or
+                    ($_.CommandLine -like "*vencord-watchdog.ps1*")
+                )
+            } |
+            Where-Object { $_.ProcessId -ne $PID } |
+            ForEach-Object {
+                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+    } catch {}
+
+    Start-Sleep -Seconds 1
+}
+
+function Stop-DiscordForVencordUninstall {
+    param(
+        [hashtable]$Ui
+    )
+
+    Write-Host $Ui.ClosingDiscord -ForegroundColor Yellow
+
+    Get-Process Discord -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+
+    $deadline = (Get-Date).AddSeconds(20)
+
+    while ((Get-Date) -lt $deadline) {
+        if (-not (Get-Process Discord -ErrorAction SilentlyContinue)) {
+            return
+        }
+
+        Start-Sleep -Milliseconds 500
+    }
+}
+
+function Test-VencordPatchPresent {
+    param(
+        $AppDir
+    )
+
+    if (-not $AppDir) {
+        return $false
+    }
+
+    $resources = Join-Path $AppDir.FullName "resources"
+    $appAsar = Join-Path $resources "app.asar"
+    $backupAsar = Join-Path $resources "_app.asar"
+
+    if (-not (Test-Path $appAsar)) {
+        return $false
+    }
+
+    $appAsarItem = Get-Item $appAsar -ErrorAction SilentlyContinue
+    $hasVencordLoader = $false
+
+    try {
+        $bytesToRead = [Math]::Min(4096, [int]$appAsarItem.Length)
+        $buffer = New-Object byte[] $bytesToRead
+        $stream = [System.IO.File]::Open($appAsar, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        try {
+            [void]$stream.Read($buffer, 0, $bytesToRead)
+        } finally {
+            $stream.Close()
+        }
+
+        $text = [System.Text.Encoding]::UTF8.GetString($buffer)
+        $hasVencordLoader = ($text -match "patcher\.js" -or $text -match "Roaming\\Vencord")
+    } catch {}
+
+    return ((Test-Path $backupAsar) -and ($appAsarItem.Length -lt 4096 -or $hasVencordLoader))
+}
+
+function Restore-DiscordAsarBackupIfNeeded {
+    param(
+        [hashtable]$Ui
+    )
+
+    $latest = Get-LatestDiscordInstall
+
+    if (-not (Test-VencordPatchPresent -AppDir $latest)) {
+        return
+    }
+
+    $resources = Join-Path $latest.FullName "resources"
+    $appAsar = Join-Path $resources "app.asar"
+    $backupAsar = Join-Path $resources "_app.asar"
+
+    if (-not (Test-Path $backupAsar)) {
+        throw $Ui.MissingAsarBackup
+    }
+
+    Write-Host $Ui.RestoringAsarBackup -ForegroundColor Yellow
+    Copy-Item -LiteralPath $backupAsar -Destination $appAsar -Force
+    Remove-Item -LiteralPath $backupAsar -Force -ErrorAction SilentlyContinue
+
+    $latest = Get-LatestDiscordInstall
+
+    if (Test-VencordPatchPresent -AppDir $latest) {
+        throw $Ui.VencordStillPatched
+    }
+}
+
 function Confirm-InstallSelection {
     param(
         [hashtable]$Ui
@@ -1147,6 +1276,8 @@ function Invoke-VencordPatchUninstall {
         throw $Ui.UninstallBothUnavailable
     }
 
+    Stop-AutoVencordWatchdogForUninstall -Ui $Ui
+    Stop-DiscordForVencordUninstall -Ui $Ui
     Write-Host $Ui.UninstallingVencord -ForegroundColor Yellow
 
     New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
@@ -1209,6 +1340,7 @@ function Invoke-VencordPatchUninstall {
         throw "Vencord CLI uninstall failed with exit code $exitCode."
     }
 
+    Restore-DiscordAsarBackupIfNeeded -Ui $Ui
     Write-Host $Ui.VencordUninstallDone -ForegroundColor Green
 }
 
