@@ -147,19 +147,31 @@ function Write-PaddedLine {
     param(
         [string]$Text = "",
         [ConsoleColor]$ForegroundColor = [ConsoleColor]::Gray,
-        [ConsoleColor]$BackgroundColor = [ConsoleColor]::Black,
         [int]$Width = 80
     )
 
     $safeWidth = [Math]::Max(20, $Width)
     $trimmed = if ($Text.Length -gt $safeWidth) { $Text.Substring(0, $safeWidth) } else { $Text }
     $padded = $trimmed.PadRight($safeWidth)
-    Write-Host $padded -ForegroundColor $ForegroundColor -BackgroundColor $BackgroundColor
+    Write-Host $padded -ForegroundColor $ForegroundColor
+}
+
+function Write-SelectedLine {
+    param(
+        [string]$Text = "",
+        [int]$Width = 80
+    )
+
+    $safeWidth = [Math]::Max(20, $Width)
+    $trimmed = if ($Text.Length -gt $safeWidth) { $Text.Substring(0, $safeWidth) } else { $Text }
+    $padded = $trimmed.PadRight($safeWidth)
+    Write-Host $padded -ForegroundColor Black -BackgroundColor Cyan
 }
 
 function Render-Menu {
     param(
         [hashtable]$Ui,
+        [pscustomobject]$Status,
         [string[]]$Options,
         [int]$SelectedIndex,
         [bool]$FirstRender
@@ -173,7 +185,6 @@ function Render-Menu {
     }
 
     $rawUi.CursorPosition = New-Object System.Management.Automation.Host.Coordinates 0, 0
-    $status = Get-StatusText -Ui $Ui
 
     Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
     Write-PaddedLine -Text ("{0}" -f $Ui.BannerTitle).PadLeft(([Math]::Floor(($width + $Ui.BannerTitle.Length) / 2))) -ForegroundColor Cyan -Width $width
@@ -184,11 +195,11 @@ function Render-Menu {
     Write-PaddedLine -Text $Ui.SectionTitle -ForegroundColor Green -Width $width
     Write-PaddedLine -Text "" -Width $width
 
-    $installedColor = if ($status.InstalledOk) { [ConsoleColor]::Green } else { [ConsoleColor]::Yellow }
-    $watchdogColor = if ($status.WatchdogOk) { [ConsoleColor]::Green } elseif ($status.RawWatchdogState -eq "NotInstalled") { [ConsoleColor]::Yellow } else { [ConsoleColor]::DarkYellow }
+    $installedColor = if ($Status.InstalledOk) { [ConsoleColor]::Green } else { [ConsoleColor]::Yellow }
+    $watchdogColor = if ($Status.WatchdogOk) { [ConsoleColor]::Green } elseif ($Status.RawWatchdogState -eq "NotInstalled") { [ConsoleColor]::Yellow } else { [ConsoleColor]::DarkYellow }
 
-    Write-PaddedLine -Text ("{0}: {1}" -f $status.InstalledLabel, $status.InstalledValue) -ForegroundColor $installedColor -Width $width
-    Write-PaddedLine -Text ("{0}: {1}" -f $status.WatchdogLabel, $status.WatchdogValue) -ForegroundColor $watchdogColor -Width $width
+    Write-PaddedLine -Text ("{0}: {1}" -f $Status.InstalledLabel, $Status.InstalledValue) -ForegroundColor $installedColor -Width $width
+    Write-PaddedLine -Text ("{0}: {1}" -f $Status.WatchdogLabel, $Status.WatchdogValue) -ForegroundColor $watchdogColor -Width $width
     Write-PaddedLine -Text "" -Width $width
 
     for ($i = 0; $i -lt $Options.Length; $i++) {
@@ -203,7 +214,7 @@ function Render-Menu {
         $line = $content.PadRight($contentWidth)
 
         if ($i -eq $SelectedIndex) {
-            Write-PaddedLine -Text ($line + " >>") -ForegroundColor Black -BackgroundColor Cyan -Width $width
+            Write-SelectedLine -Text ($line + " >>") -Width $width
         } else {
             Write-PaddedLine -Text ($line + "   ") -ForegroundColor Gray -Width $width
         }
@@ -221,13 +232,14 @@ function Show-Menu {
 
     $index = 0
     $firstRender = $true
+    $status = Get-StatusText -Ui $Ui
 
     try {
         $Host.UI.RawUI.WindowTitle = $windowTitle
     } catch {}
 
     while ($true) {
-        Render-Menu -Ui $Ui -Options $Options -SelectedIndex $index -FirstRender $firstRender
+        Render-Menu -Ui $Ui -Status $status -Options $Options -SelectedIndex $index -FirstRender $firstRender
         $firstRender = $false
 
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
