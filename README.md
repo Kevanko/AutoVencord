@@ -14,16 +14,20 @@ The watchdog:
 
 - watches `%LOCALAPPDATA%\Discord`
 - detects newly created or updated `app-*` Discord versions
+- waits while Discord/Squirrel updater is active
+- checks that `app.asar` is present, readable, non-empty, and stable before patching
 - checks whether the newest version is still patched
 - re-runs the official Vencord CLI only when patching is actually needed
 - writes activity and errors to `last-action.log`
 - rotates the log automatically when it exceeds 2 MB
 
+The one-click BAT also checks GitHub for a newer installer on launch. If an update is found, it asks `Update now? [Y/n]`; pressing Enter accepts the update.
+
 ### Why this approach
 
 - no custom patched binaries are shipped in the repository
 - the patch is always applied through the official Vencord CLI
-- no constant polling loop is used in the final watchdog
+- no busy polling loop is used; the watcher is event-based with a rare safety check
 - no duplicate scheduled tasks are created; the installer always replaces the same task
 
 ### Compatibility
@@ -37,6 +41,14 @@ The scripts are written to be friendly to older Windows setups by:
 This project is intended for Windows versions that are able to run the target Discord/Vencord combination on the machine. Script compatibility is broader than product support, so actual runtime support still depends on the Discord and Vencord versions available for that OS.
 
 ### Install
+
+PowerShell one-command install:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]3072; iex ((New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1'))"
+```
+
+Manual BAT install:
 
 1. Download [`AutoVencord-OneClick.bat`](./AutoVencord-OneClick.bat).
 2. Run it.
@@ -91,16 +103,20 @@ Watcher:
 
 - следит за `%LOCALAPPDATA%\Discord`
 - замечает новые или обновлённые папки `app-*`
+- ждёт, пока Discord/Squirrel updater закончит работу
+- проверяет, что `app.asar` появился, читается, не пустой и уже стабилен
 - проверяет, пропатчена ли самая свежая версия
 - запускает официальный Vencord CLI только тогда, когда патч реально слетел
 - пишет действия и ошибки в `last-action.log`
 - автоматически ротирует лог после 2 MB
 
+One-click BAT при запуске сам проверяет GitHub на наличие новой версии установщика. Если обновление найдено, он спросит `Update now? [Y/n]`; Enter означает обновить.
+
 ### Почему так
 
 - в репозитории нет кастомных пропатченных бинарников
 - патч всегда применяется через официальный Vencord CLI
-- нет постоянного polling-цикла в финальном watcher
+- нет тяжёлого polling-цикла; watcher работает по событиям и редко делает страховочную проверку
 - дубликаты задач не создаются; установщик всегда обновляет одну и ту же задачу
 
 ### Совместимость
@@ -114,6 +130,14 @@ Watcher:
 Проект рассчитан на те версии Windows, на которых в принципе работает нужная связка Discord/Vencord. Совместимость скриптов шире, чем официальная поддержка самих продуктов, поэтому фактическая поддержка всё равно зависит от доступных версий Discord и Vencord для конкретной ОС.
 
 ### Установка
+
+Установка одной командой PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]3072; iex ((New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1'))"
+```
+
+Ручная установка через BAT:
 
 1. Скачай [`AutoVencord-OneClick.bat`](./AutoVencord-OneClick.bat).
 2. Запусти его.
