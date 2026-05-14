@@ -461,6 +461,36 @@ function Test-DiscordInstallReady($appDir) {
     return Test-FileStable $appAsar
 }
 
+function Get-DiscordPreflight {
+    if (-not (Test-Path $discordRoot)) {
+        return [pscustomobject]@{
+            State = "Missing"
+            Message = "Discord was not found. Install Discord before installing AutoVencord."
+        }
+    }
+
+    $latest = Get-LatestDiscordInstall
+
+    if (-not $latest) {
+        return [pscustomobject]@{
+            State = "Incomplete"
+            Message = "Discord folder exists, but no app-* version folder was found. Start Discord once, then try again."
+        }
+    }
+
+    if (-not (Test-DiscordInstallReady $latest)) {
+        return [pscustomobject]@{
+            State = "Incomplete"
+            Message = "Discord looks incomplete or is updating. Start Discord once, then try again."
+        }
+    }
+
+    return [pscustomobject]@{
+        State = "Ready"
+        Message = "Discord is ready."
+    }
+}
+
 function Wait-DiscordReadyForInitialPatch {
     $deadline = (Get-Date).AddMinutes(5)
 
@@ -517,6 +547,20 @@ function Invoke-VencordInstallerCli {
     return [pscustomobject]@{
         Output = $output
         ExitCode = $exitCode
+    }
+}
+
+if ($PatchNow) {
+    $discordPreflight = Get-DiscordPreflight
+
+    if ($discordPreflight.State -ne "Ready") {
+        Write-Host $discordPreflight.Message -ForegroundColor Red
+
+        if ($discordPreflight.State -eq "Missing") {
+            exit 20
+        }
+
+        exit 21
     }
 }
 

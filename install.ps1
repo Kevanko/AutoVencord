@@ -17,6 +17,7 @@ $installedSetupHashPath = Join-Path $installedBaseDir "AutoVencord-Setup.sha256"
 $uninstallPath = Join-Path $installedBaseDir "uninstall.bat"
 $watchdogScriptPath = Join-Path $installedBaseDir "watchdog.ps1"
 $installedCliPath = Join-Path $installedBaseDir "VencordInstallerCli.exe"
+$discordRoot = Join-Path $env:LOCALAPPDATA "Discord"
 $windowTitle = "AutoVencord"
 $taskName = "AutoVencord Watchdog"
 
@@ -163,10 +164,16 @@ function Get-UiText {
             Yes = Join-CodePoints @(1044,1072)
             No = Join-CodePoints @(1053,1077,1090)
             Watchdog = "Watchdog"
+            Discord = "Discord"
             Active = Join-CodePoints @(1040,1082,1090,1080,1074,1077,1085)
             Inactive = Join-CodePoints @(1053,1077,1072,1082,1090,1080,1074,1077,1085)
             NotInstalled = Join-CodePoints @(1053,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085)
             Unknown = Join-CodePoints @(1053,1077,1080,1079,1074,1077,1089,1090,1085,1086)
+            DiscordMissing = Join-CodePoints @(1085,1077,32,1085,1072,1081,1076,1077,1085)
+            DiscordIncomplete = Join-CodePoints @(1085,1077,1087,1086,1083,1085,1072,1103,32,1091,1089,1090,1072,1085,1086,1074,1082,1072,32,47,32,1086,1073,1085,1086,1074,1083,1103,1077,1090,1089,1103)
+            DiscordMissingInstalled = Join-CodePoints @(68,105,115,99,111,114,100,32,1085,1077,32,1085,1072,1081,1076,1077,1085,46,32,65,117,116,111,86,101,110,99,111,114,100,32,1073,1086,1083,1100,1096,1077,32,1085,1077,32,1089,1084,1086,1078,1077,1090,32,1088,1072,1073,1086,1090,1072,1090,1100,44,32,1087,1086,1082,1072,32,68,105,115,99,111,114,100,32,1085,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085,46)
+            DiscordIncompleteMessage = Join-CodePoints @(68,105,115,99,111,114,100,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085,32,1085,1077,1087,1086,1083,1085,1086,32,1080,1083,1080,32,1086,1073,1085,1086,1074,1083,1103,1077,1090,1089,1103,46,32,1047,1072,1087,1091,1089,1090,1080,1090,1077,32,68,105,115,99,111,114,100,32,1086,1076,1080,1085,32,1088,1072,1079,32,1080,32,1087,1086,1074,1090,1086,1088,1080,1090,1077,46)
+            DiscordMissingInstall = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1080,1090,1077,32,68,105,115,99,111,114,100,32,1087,1077,1088,1077,1076,32,1091,1089,1090,1072,1085,1086,1074,1082,1086,1081,32,65,117,116,111,86,101,110,99,111,114,100,46)
             Install = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1080,1090,1100)
             Update = Join-CodePoints @(1054,1073,1085,1086,1074,1080,1090,1100)
             Uninstall = Join-CodePoints @(1059,1076,1072,1083,1080,1090,1100)
@@ -204,10 +211,16 @@ function Get-UiText {
         Yes = "Yes"
         No = "No"
         Watchdog = "Watchdog"
+        Discord = "Discord"
         Active = "Active"
         Inactive = "Inactive"
         NotInstalled = "Not installed"
         Unknown = "Unknown"
+        DiscordMissing = "not found"
+        DiscordIncomplete = "incomplete / updating"
+        DiscordMissingInstalled = "Discord is missing. AutoVencord cannot work until Discord is installed."
+        DiscordIncompleteMessage = "Discord looks incomplete or is updating. Start Discord once, then try again."
+        DiscordMissingInstall = "Install Discord before installing AutoVencord."
         Install = "Install"
         Update = "Update"
         Uninstall = "Uninstall"
@@ -261,6 +274,91 @@ function Get-WatchdogState {
     return "Unknown"
 }
 
+function Get-DiscordAppVersion {
+    param(
+        [string]$DirectoryName
+    )
+
+    $raw = $DirectoryName -replace "^app-", ""
+
+    try {
+        return [version]$raw
+    } catch {
+        return [version]"0.0.0.0"
+    }
+}
+
+function Get-LatestDiscordInstall {
+    if (-not (Test-Path $discordRoot)) {
+        return $null
+    }
+
+    $latest = $null
+    $latestVersion = [version]"0.0.0.0"
+    $latestWriteTime = [datetime]::MinValue
+
+    $dirs = Get-ChildItem $discordRoot -ErrorAction SilentlyContinue |
+        Where-Object { $_.PSIsContainer -and $_.Name -like "app-*" }
+
+    foreach ($dir in $dirs) {
+        $version = Get-DiscordAppVersion -DirectoryName $dir.Name
+
+        if (($version -gt $latestVersion) -or ($version -eq $latestVersion -and $dir.LastWriteTimeUtc -gt $latestWriteTime)) {
+            $latest = $dir
+            $latestVersion = $version
+            $latestWriteTime = $dir.LastWriteTimeUtc
+        }
+    }
+
+    return $latest
+}
+
+function Test-DiscordInstallReady {
+    param(
+        $AppDir
+    )
+
+    if (-not $AppDir) {
+        return $false
+    }
+
+    $resources = Join-Path $AppDir.FullName "resources"
+    $appAsar = Join-Path $resources "app.asar"
+    $buildInfo = Join-Path $resources "build_info.json"
+
+    return ((Test-Path $resources) -and (Test-Path $appAsar) -and (Test-Path $buildInfo))
+}
+
+function Get-DiscordPreflight {
+    if (-not (Test-Path $discordRoot)) {
+        return [pscustomobject]@{
+            State = "Missing"
+            Latest = $null
+        }
+    }
+
+    $latest = Get-LatestDiscordInstall
+
+    if (-not $latest) {
+        return [pscustomobject]@{
+            State = "Incomplete"
+            Latest = $null
+        }
+    }
+
+    if (-not (Test-DiscordInstallReady -AppDir $latest)) {
+        return [pscustomobject]@{
+            State = "Incomplete"
+            Latest = $latest
+        }
+    }
+
+    return [pscustomobject]@{
+        State = "Ready"
+        Latest = $latest
+    }
+}
+
 function Get-StatusText {
     param(
         [hashtable]$Ui
@@ -269,6 +367,7 @@ function Get-StatusText {
     $hasCoreFiles = (Test-Path $installedSetupPath) -or (Test-Path $installedInstallerPath) -or (Test-Path $watchdogScriptPath) -or (Test-Path $installedCliPath)
     $isInstalled = (Test-Path $uninstallPath) -and $hasCoreFiles
     $watchdogState = Get-WatchdogState
+    $discord = Get-DiscordPreflight
     $installedValue = if ($isInstalled) { $Ui.Yes } else { $Ui.No }
 
     if ($watchdogState -match "Ready|Running") {
@@ -281,14 +380,30 @@ function Get-StatusText {
         $watchdogValue = "{0} ({1})" -f $Ui.Inactive, $watchdogState
     }
 
+    $discordValue = $null
+    $discordMessage = $null
+
+    if ($discord.State -eq "Missing") {
+        $discordValue = $Ui.DiscordMissing
+        $discordMessage = if ($isInstalled) { $Ui.DiscordMissingInstalled } else { $Ui.DiscordMissingInstall }
+    } elseif ($discord.State -eq "Incomplete") {
+        $discordValue = $Ui.DiscordIncomplete
+        $discordMessage = $Ui.DiscordIncompleteMessage
+    }
+
     return [pscustomobject]@{
         InstalledLabel = $Ui.Installed
         InstalledValue = $installedValue
         InstalledOk = $isInstalled
+        InstallFolderExists = (Test-Path $installedBaseDir)
         WatchdogLabel = $Ui.Watchdog
         WatchdogValue = $watchdogValue
         WatchdogOk = ($watchdogState -match "Ready|Running")
         RawWatchdogState = $watchdogState
+        DiscordLabel = $Ui.Discord
+        DiscordState = $discord.State
+        DiscordValue = $discordValue
+        DiscordMessage = $discordMessage
     }
 }
 
@@ -403,6 +518,10 @@ function Get-UpdateAvailability {
         return $false
     }
 
+    if ($Status.DiscordState -ne "Ready") {
+        return $false
+    }
+
     try {
         $updateCheckPath = Join-Path $tempDir "AutoVencord-update-check.ps1"
         New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
@@ -418,6 +537,26 @@ function Get-MenuEnabledStates {
     param(
         [pscustomobject]$Status
     )
+
+    if ($Status.DiscordState -ne "Ready") {
+        if ($Status.InstalledOk) {
+            return @(
+                $false,
+                $false,
+                $false,
+                $true,
+                $true
+            )
+        }
+
+        return @(
+            $false,
+            $false,
+            $Status.InstallFolderExists,
+            $false,
+            $true
+        )
+    }
 
     return @(
         (-not $Status.InstalledOk),
@@ -466,7 +605,11 @@ function Set-UpdateMenuStatus {
         [bool]$UpdateAvailable
     )
 
-    if (-not $Status.InstalledOk) {
+    if ($Status.DiscordState -ne "Ready") {
+        $value = $Ui.UpdateUnavailable
+        $hint = $Status.DiscordValue
+        $state = "Unavailable"
+    } elseif (-not $Status.InstalledOk) {
         $value = $Ui.UpdateUnavailable
         $hint = $Ui.UpdateHintUnavailable
         $state = "Unavailable"
@@ -594,6 +737,14 @@ function Render-Menu {
 
     Write-PaddedLine -Text ("{0}: {1}" -f $Status.InstalledLabel, $Status.InstalledValue) -ForegroundColor $installedColor -Width $width
     Write-PaddedLine -Text ("{0}: {1}" -f $Status.WatchdogLabel, $Status.WatchdogValue) -ForegroundColor $watchdogColor -Width $width
+
+    if ($Status.DiscordState -ne "Ready") {
+        $discordColor = if ($Status.DiscordState -eq "Missing") { [ConsoleColor]::Red } else { [ConsoleColor]::Yellow }
+        Write-PaddedLine -Text ("{0}: {1}" -f $Status.DiscordLabel, $Status.DiscordValue) -ForegroundColor $discordColor -Width $width
+        if ($Status.DiscordMessage) {
+            Write-PaddedLine -Text $Status.DiscordMessage -ForegroundColor $discordColor -Width $width
+        }
+    }
 
     if ($Status.UpdateLabel) {
         Write-PaddedLine -Text ("{0}: {1}" -f $Status.UpdateLabel, $Status.UpdateValue) -ForegroundColor (Get-UpdateColor -Status $Status) -Width $width
@@ -724,6 +875,24 @@ function Download-LatestInstaller {
     return $setupPath
 }
 
+function Assert-DiscordReady {
+    param(
+        [hashtable]$Ui
+    )
+
+    $discord = Get-DiscordPreflight
+
+    if ($discord.State -eq "Ready") {
+        return
+    }
+
+    if ($discord.State -eq "Missing") {
+        throw $Ui.DiscordMissingInstall
+    }
+
+    throw $Ui.DiscordIncompleteMessage
+}
+
 function Invoke-SetupScript {
     param(
         [string]$SetupScriptPath,
@@ -822,6 +991,7 @@ function Invoke-Install {
         [hashtable]$Ui
     )
 
+    Assert-DiscordReady -Ui $Ui
     $downloadedInstallerPath = Download-LatestInstaller -Ui $Ui -AllowLocalFallback
     Invoke-SetupScript -SetupScriptPath $downloadedInstallerPath -PatchNow
 }
@@ -857,6 +1027,7 @@ function Invoke-Update {
         [hashtable]$Ui
     )
 
+    Assert-DiscordReady -Ui $Ui
     Write-Host $Ui.Updating -ForegroundColor Cyan
     $downloadedInstallerPath = Download-LatestInstaller -Ui $Ui
 
