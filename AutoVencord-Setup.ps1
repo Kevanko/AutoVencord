@@ -1,202 +1,6 @@
-@echo off
-setlocal
-
-if "%AUTOVENCORD_SKIP_SELF_UPDATE%"=="1" goto AfterSelfUpdate
-
-set "SELFUPDATE=%TEMP%\AutoVencord-self-update.ps1"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$content = Get-Content -LiteralPath '%~f0'; $start = ($content | Select-String '^#<SELFUPDATE>$').LineNumber; $end = ($content | Select-String '^#</SELFUPDATE>$').LineNumber; if (-not $start -or -not $end -or $end -le $start) { throw 'Embedded self-update script not found.' }; $content[($start)..($end - 2)] | Set-Content -LiteralPath '%SELFUPDATE%' -Encoding UTF8"
-if errorlevel 1 goto AfterSelfUpdate
-
-powershell -NoProfile -ExecutionPolicy Bypass -File "%SELFUPDATE%" -SelfPath "%~f0"
-set "UPDATE_EXIT=%ERRORLEVEL%"
-del "%SELFUPDATE%" >nul 2>&1
-if "%UPDATE_EXIT%"=="42" exit /b 0
-
-:AfterSelfUpdate
-set "PS1=%TEMP%\AutoVencord-setup.ps1"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$content = Get-Content -LiteralPath '%~f0'; $start = ($content | Select-String '^#<POWERSHELL>$').LineNumber; if (-not $start) { throw 'Embedded PowerShell script not found.' }; $content[($start)..($content.Length - 1)] | Set-Content -LiteralPath '%PS1%' -Encoding UTF8"
-if errorlevel 1 (
-    echo Failed to extract embedded PowerShell script.
-    call :MaybePause
-    exit /b 1
-)
-
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -SourceBatPath "%~f0"
-set "EXITCODE=%ERRORLEVEL%"
-del "%PS1%" >nul 2>&1
-
-if not "%EXITCODE%"=="0" (
-    echo.
-    echo AutoVencord install failed.
-    call :MaybePause
-    exit /b %EXITCODE%
-)
-
-call :MaybePause
-exit /b 0
-
-:MaybePause
-if not "%AUTOVENCORD_NO_PAUSE%"=="1" pause
-exit /b 0
-
-#<SELFUPDATE>
 param(
-    [string]$SelfPath
-)
-
-$ErrorActionPreference = "SilentlyContinue"
-$latestUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/AutoVencord-OneClick.bat"
-$latestFallbackUrl = "https://github.com/Kevanko/AutoVencord/raw/main/AutoVencord-OneClick.bat"
-$freshMarker = "function Invoke-SchtasksSafe {"
-
-function Enable-Tls12IfAvailable {
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]3072
-    } catch {}
-}
-
-function Download-File($url, $outFile) {
-    Enable-Tls12IfAvailable
-
-    if (Get-Command Invoke-WebRequest -ErrorAction SilentlyContinue) {
-        Invoke-WebRequest -UseBasicParsing $url -OutFile $outFile
-        return
-    }
-
-    $client = New-Object System.Net.WebClient
-    $client.DownloadFile($url, $outFile)
-}
-
-function Test-FreshPayload($path) {
-    if (-not (Test-Path $path)) {
-        return $false
-    }
-
-    try {
-        $content = Get-Content -LiteralPath $path -Raw
-        return $content.Contains($freshMarker)
-    } catch {
-        return $false
-    }
-}
-
-function Get-SelfUpdateCandidateUrls() {
-    return @(
-        $latestUrl,
-        $latestFallbackUrl,
-        ("{0}?raw=1" -f $latestFallbackUrl)
-    )
-}
-
-function Download-FreshBatch($outFile) {
-    $lastError = $null
-
-    foreach ($url in (Get-SelfUpdateCandidateUrls)) {
-        try {
-            Download-File $url $outFile
-
-            if (Test-FreshPayload $outFile) {
-                return
-            }
-        } catch {
-            $lastError = $_
-        }
-    }
-
-    if ($lastError) {
-        throw $lastError
-    }
-
-    throw "Downloaded AutoVencord batch is stale or invalid."
-}
-
-function Test-SameFile($left, $right) {
-    if (-not (Test-Path $left) -or -not (Test-Path $right)) {
-        return $false
-    }
-
-    try {
-        $a = [System.IO.File]::ReadAllBytes($left)
-        $b = [System.IO.File]::ReadAllBytes($right)
-
-        if ($a.Length -ne $b.Length) {
-            return $false
-        }
-
-        for ($i = 0; $i -lt $a.Length; $i++) {
-            if ($a[$i] -ne $b[$i]) {
-                return $false
-            }
-        }
-
-        return $true
-    } catch {
-        return $false
-    }
-}
-
-try {
-    if (-not $SelfPath -or -not (Test-Path $SelfPath)) {
-        exit 0
-    }
-
-    $tempBat = Join-Path $env:TEMP ("AutoVencord-OneClick-" + [guid]::NewGuid().ToString() + ".bat")
-    Download-FreshBatch $tempBat
-
-    if (Test-SameFile $SelfPath $tempBat) {
-        Remove-Item $tempBat -Force -ErrorAction SilentlyContinue
-        exit 0
-    }
-
-    Write-Host ""
-    Write-Host "==============================================" -ForegroundColor Cyan
-    Write-Host "              AutoVencord Update" -ForegroundColor Green
-    Write-Host "==============================================" -ForegroundColor Cyan
-    Write-Host "A newer installer is available on GitHub." -ForegroundColor White
-    Write-Host "Press Enter or Y to update, N to continue." -ForegroundColor DarkGray
-    Write-Host ""
-
-    $answer = Read-Host "Update now? [Y/n]"
-    if ($answer -match '^(n|no)$') {
-        Remove-Item $tempBat -Force -ErrorAction SilentlyContinue
-        Write-Host "Update skipped." -ForegroundColor Yellow
-        Start-Sleep -Seconds 1
-        exit 0
-    }
-
-    $helper = Join-Path $env:TEMP ("AutoVencord-restart-" + [guid]::NewGuid().ToString() + ".cmd")
-    $helperContent = @"
-@echo off
-timeout /t 1 /nobreak >nul
-copy /y "$tempBat" "$SelfPath" >nul
-if errorlevel 1 (
-    echo Failed to replace AutoVencord installer.
-    pause
-    exit /b 1
-)
-start "" "$SelfPath"
-del "$tempBat" >nul 2>nul
-del "%~f0" >nul 2>nul
-"@
-
-    Set-Content -LiteralPath $helper -Value $helperContent -Encoding ASCII
-    Write-Host "Updating and restarting installer..." -ForegroundColor Green
-    Start-Process -FilePath $helper -WindowStyle Normal
-    exit 42
-} catch {
-    if ($tempBat) {
-        Remove-Item $tempBat -Force -ErrorAction SilentlyContinue
-    }
-
-    Write-Host "Update check skipped: $($_.Exception.Message)" -ForegroundColor Yellow
-    Start-Sleep -Seconds 1
-    exit 0
-}
-#</SELFUPDATE>
-
-#<POWERSHELL>
-param(
-    [string]$SourceBatPath
+    [string]$SourceBatPath,
+    [string]$SourceSetupPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -204,6 +8,7 @@ $ErrorActionPreference = "Stop"
 $baseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $installerPath = Join-Path $baseDir "VencordInstallerCli.exe"
 $installerBatchCopyPath = Join-Path $baseDir "AutoVencord-OneClick.bat"
+$installerSetupCopyPath = Join-Path $baseDir "AutoVencord-Setup.ps1"
 $watchdogPath = Join-Path $baseDir "watchdog.ps1"
 $uninstallPath = Join-Path $baseDir "uninstall.bat"
 $taskName = "AutoVencord Watchdog"
@@ -483,6 +288,11 @@ Stop-ExistingTask
 if ($SourceBatPath -and (Test-Path $SourceBatPath)) {
     Copy-Item -LiteralPath $SourceBatPath -Destination $installerBatchCopyPath -Force
     Write-SetupLog "Installer batch copied"
+}
+
+if ($SourceSetupPath -and (Test-Path $SourceSetupPath)) {
+    Copy-Item -LiteralPath $SourceSetupPath -Destination $installerSetupCopyPath -Force
+    Write-SetupLog "Installer setup copied"
 }
 
 Write-Host "Downloading official Vencord installer..."

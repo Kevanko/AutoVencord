@@ -8,7 +8,7 @@ One-click Windows setup that automatically re-patches Vencord after Discord upda
 
 ### What it does
 
-`AutoVencord-OneClick.bat` installs a small local helper into `%LOCALAPPDATA%\AutoVencord`, downloads the official `VencordInstallerCli.exe`, patches Discord once, and creates a single background Task Scheduler job named `AutoVencord Watchdog`.
+`install.ps1` installs a small local helper into `%LOCALAPPDATA%\AutoVencord`, downloads the official `VencordInstallerCli.exe`, patches Discord once, and creates a single background Task Scheduler job named `AutoVencord Watchdog`.
 
 The watchdog:
 
@@ -69,6 +69,7 @@ Manual BAT install:
 
 Installed files:
 
+- `%LOCALAPPDATA%\AutoVencord\AutoVencord-Setup.ps1`
 - `%LOCALAPPDATA%\AutoVencord\watchdog.ps1`
 - `%LOCALAPPDATA%\AutoVencord\uninstall.bat`
 - `%LOCALAPPDATA%\AutoVencord\last-action.log`

@@ -1,12 +1,15 @@
 $ErrorActionPreference = "Stop"
 
-$installerUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/AutoVencord-OneClick.bat"
-$installerFallbackUrl = "https://github.com/Kevanko/AutoVencord/raw/main/AutoVencord-OneClick.bat"
+$installerUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/AutoVencord-Setup.ps1"
+$installerFallbackUrl = "https://github.com/Kevanko/AutoVencord/raw/main/AutoVencord-Setup.ps1"
 $installerFreshMarker = "function Invoke-SchtasksSafe {"
+$scriptRoot = if ($MyInvocation.MyCommand.Path) { Split-Path -Parent $MyInvocation.MyCommand.Path } else { $PWD.Path }
+$localSetupCandidate = Join-Path $scriptRoot "AutoVencord-Setup.ps1"
 $tempDir = Join-Path $env:TEMP "AutoVencord"
-$batPath = Join-Path $tempDir "AutoVencord-OneClick.bat"
+$setupPath = Join-Path $tempDir "AutoVencord-Setup.ps1"
 $installedBaseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $installedInstallerPath = Join-Path $installedBaseDir "AutoVencord-OneClick.bat"
+$installedSetupPath = Join-Path $installedBaseDir "AutoVencord-Setup.ps1"
 $uninstallPath = Join-Path $installedBaseDir "uninstall.bat"
 $watchdogScriptPath = Join-Path $installedBaseDir "watchdog.ps1"
 $installedCliPath = Join-Path $installedBaseDir "VencordInstallerCli.exe"
@@ -60,6 +63,11 @@ function Download-FreshInstallerPayload {
     param(
         [string]$OutFile
     )
+
+    if (Test-InstallerPayload -Path $localSetupCandidate) {
+        Copy-Item -LiteralPath $localSetupCandidate -Destination $OutFile -Force
+        return
+    }
 
     $urls = Get-InstallerCandidateUrls
     $lastError = $null
@@ -218,7 +226,7 @@ function Get-StatusText {
         [hashtable]$Ui
     )
 
-    $hasCoreFiles = (Test-Path $installedInstallerPath) -or (Test-Path $watchdogScriptPath) -or (Test-Path $installedCliPath)
+    $hasCoreFiles = (Test-Path $installedSetupPath) -or (Test-Path $installedInstallerPath) -or (Test-Path $watchdogScriptPath) -or (Test-Path $installedCliPath)
     $isInstalled = (Test-Path $uninstallPath) -and $hasCoreFiles
     $watchdogState = Get-WatchdogState
     $installedValue = if ($isInstalled) { $Ui.Yes } else { $Ui.No }
@@ -303,11 +311,13 @@ function Get-UpdateAvailability {
         New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
         Download-FreshInstallerPayload -OutFile $updateCheckPath
 
-        if (-not (Test-Path $installedInstallerPath)) {
+        $installedComparablePath = if (Test-Path $installedSetupPath) { $installedSetupPath } else { $installedInstallerPath }
+
+        if (-not (Test-Path $installedComparablePath)) {
             return $true
         }
 
-        return (-not (Test-SameFileHash -LeftPath $installedInstallerPath -RightPath $updateCheckPath))
+        return (-not (Test-SameFileHash -LeftPath $installedComparablePath -RightPath $updateCheckPath))
     } catch {
         return $false
     }
@@ -434,13 +444,13 @@ function Download-LatestInstaller {
 
     New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
     Write-Host $Ui.Downloading -ForegroundColor Cyan
-    Download-FreshInstallerPayload -OutFile $batPath
-    return $batPath
+    Download-FreshInstallerPayload -OutFile $setupPath
+    return $setupPath
 }
 
-function Invoke-InstallerBatch {
+function Invoke-SetupScript {
     param(
-        [string]$InstallerBatchPath
+        [string]$SetupScriptPath
     )
 
     $oldSkipSelfUpdate = $env:AUTOVENCORD_SKIP_SELF_UPDATE
@@ -449,7 +459,7 @@ function Invoke-InstallerBatch {
     try {
         $env:AUTOVENCORD_SKIP_SELF_UPDATE = "1"
         $env:AUTOVENCORD_NO_PAUSE = "1"
-        & $InstallerBatchPath
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $SetupScriptPath -SourceSetupPath $SetupScriptPath
         $exitCode = $LASTEXITCODE
 
         if ($exitCode -ne 0) {
@@ -535,7 +545,7 @@ function Invoke-Install {
     )
 
     $downloadedInstallerPath = Download-LatestInstaller -Ui $Ui
-    Invoke-InstallerBatch -InstallerBatchPath $downloadedInstallerPath
+    Invoke-SetupScript -SetupScriptPath $downloadedInstallerPath
 }
 
 function Invoke-Uninstall {
@@ -571,13 +581,14 @@ function Invoke-Update {
 
     Write-Host $Ui.Updating -ForegroundColor Cyan
     $downloadedInstallerPath = Download-LatestInstaller -Ui $Ui
+    $installedComparablePath = if (Test-Path $installedSetupPath) { $installedSetupPath } else { $installedInstallerPath }
 
-    if ((Test-Path $installedInstallerPath) -and (Test-SameFileHash -LeftPath $installedInstallerPath -RightPath $downloadedInstallerPath)) {
+    if ((Test-Path $installedComparablePath) -and (Test-SameFileHash -LeftPath $installedComparablePath -RightPath $downloadedInstallerPath)) {
         Write-Host $Ui.AlreadyLatest -ForegroundColor Green
         return
     }
 
-    Invoke-InstallerBatch -InstallerBatchPath $downloadedInstallerPath
+    Invoke-SetupScript -SetupScriptPath $downloadedInstallerPath
 }
 
 function Open-InstallFolder {
