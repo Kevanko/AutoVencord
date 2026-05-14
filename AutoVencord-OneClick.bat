@@ -346,6 +346,35 @@ function Wait-DiscordReadyForInitialPatch {
     return $false
 }
 
+function Invoke-VencordInstallerCli {
+    param(
+        [string]$InstallerPath,
+        [string]$DiscordRoot
+    )
+
+    $previousNativeErrorPreference = $null
+    $hasNativeErrorPreference = Test-Path Variable:\PSNativeCommandUseErrorActionPreference
+
+    if ($hasNativeErrorPreference) {
+        $previousNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
+        $PSNativeCommandUseErrorActionPreference = $false
+    }
+
+    try {
+        $output = & $InstallerPath -install -location $DiscordRoot 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        if ($hasNativeErrorPreference) {
+            $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
+        }
+    }
+
+    return [pscustomobject]@{
+        Output = $output
+        ExitCode = $exitCode
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $baseDir | Out-Null
 Write-SetupLog "Setup started"
 Stop-ExistingTask
@@ -557,8 +586,22 @@ function Patch-Discord {
 
     try {
         Write-Log "Starting patch for Discord at $discordRoot"
-        $output = & $installer -install -location $discordRoot 2>&1
-        $exitCode = $LASTEXITCODE
+        $previousNativeErrorPreference = $null
+        $hasNativeErrorPreference = Test-Path Variable:\PSNativeCommandUseErrorActionPreference
+
+        if ($hasNativeErrorPreference) {
+            $previousNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
+            $PSNativeCommandUseErrorActionPreference = $false
+        }
+
+        try {
+            $output = & $installer -install -location $discordRoot 2>&1
+            $exitCode = $LASTEXITCODE
+        } finally {
+            if ($hasNativeErrorPreference) {
+                $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
+            }
+        }
 
         if ($output) {
             $output | ForEach-Object {
@@ -685,8 +728,9 @@ if (Test-Path $discordRoot) {
     if (Wait-DiscordReadyForInitialPatch) {
         Write-Host "Patching Discord with official Vencord CLI..."
         Write-SetupLog "Initial patch started"
-        $output = & $installerPath -install -location $discordRoot 2>&1
-        $exitCode = $LASTEXITCODE
+        $result = Invoke-VencordInstallerCli -InstallerPath $installerPath -DiscordRoot $discordRoot
+        $output = $result.Output
+        $exitCode = $result.ExitCode
 
         if ($output) {
             $output | ForEach-Object { Write-SetupLog "CLI: $_" }

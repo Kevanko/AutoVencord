@@ -200,8 +200,22 @@ function Patch-Discord {
 
     try {
         Write-Log "Starting patch for Discord at $discordRoot"
-        $output = & $installer -install -location $discordRoot 2>&1
-        $exitCode = $LASTEXITCODE
+        $previousNativeErrorPreference = $null
+        $hasNativeErrorPreference = Test-Path Variable:\PSNativeCommandUseErrorActionPreference
+
+        if ($hasNativeErrorPreference) {
+            $previousNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
+            $PSNativeCommandUseErrorActionPreference = $false
+        }
+
+        try {
+            $output = & $installer -install -location $discordRoot 2>&1
+            $exitCode = $LASTEXITCODE
+        } finally {
+            if ($hasNativeErrorPreference) {
+                $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
+            }
+        }
 
         if ($output) {
             $output | ForEach-Object {
