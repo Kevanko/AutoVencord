@@ -199,6 +199,14 @@ function Write-SelectedLine {
     Write-Host $padded -ForegroundColor Black -BackgroundColor Cyan
 }
 
+function Clear-PendingConsoleInput {
+    try {
+        while ([Console]::KeyAvailable) {
+            [void][Console]::ReadKey($true)
+        }
+    } catch {}
+}
+
 function Render-Menu {
     param(
         [hashtable]$Ui,
@@ -268,6 +276,9 @@ function Show-Menu {
     try {
         $Host.UI.RawUI.WindowTitle = $windowTitle
     } catch {}
+
+    Start-Sleep -Milliseconds 150
+    Clear-PendingConsoleInput
 
     while ($true) {
         Render-Menu -Ui $Ui -Status $status -Options $Options -SelectedIndex $index -FirstRender $firstRender
