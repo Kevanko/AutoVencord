@@ -157,7 +157,7 @@ function Get-UiText {
         return @{
             Language = "ru"
             BannerTitle = "AutoVencord"
-            BannerHint = Join-CodePoints @(1057,1090,1088,1077,1083,1082,1080,32,1074,1074,1077,1088,1093,47,1074,1085,1080,1079,32,45,32,1074,1099,1073,1086,1088,44,32,69,110,116,101,114,32,45,32,1079,1072,1087,1091,1089,1082)
+            BannerHint = Join-CodePoints @(1057,1090,1088,1077,1083,1082,1080,32,1074,1074,1077,1088,1093,47,1074,1085,1080,1079,32,45,32,1074,1099,1073,1086,1088,44,32,69,110,116,101,114,32,45,32,1079,1072,1087,1091,1089,1082,44,32,69,115,99,32,45,32,1074,1099,1093,1086,1076)
             SectionTitle = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1082,1072,32,1080,32,1086,1073,1089,1083,1091,1078,1080,1074,1072,1085,1080,1077)
             Installed = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1083,1077,1085,1086)
             Yes = Join-CodePoints @(1044,1072)
@@ -171,6 +171,7 @@ function Get-UiText {
             Update = Join-CodePoints @(1054,1073,1085,1086,1074,1080,1090,1100)
             Uninstall = Join-CodePoints @(1059,1076,1072,1083,1080,1090,1100)
             OpenFolder = Join-CodePoints @(1054,1090,1082,1088,1099,1090,1100,32,1087,1072,1087,1082,1091)
+            Exit = Join-CodePoints @(1042,1099,1093,1086,1076)
             Downloading = Join-CodePoints @(1057,1082,1072,1095,1080,1074,1072,1102,32,1072,1082,1090,1091,1072,1083,1100,1085,1099,1081,32,1091,1089,1090,1072,1085,1086,1074,1097,1080,1082,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
             Updating = Join-CodePoints @(1054,1073,1085,1086,1074,1083,1103,1102,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
             RunningUninstall = Join-CodePoints @(1047,1072,1087,1091,1089,1082,1072,1102,32,1091,1076,1072,1083,1077,1085,1080,1077,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
@@ -211,6 +212,7 @@ function Get-UiText {
         Update = "Update"
         Uninstall = "Uninstall"
         OpenFolder = "Open Folder"
+        Exit = "Exit"
         Downloading = "Downloading latest AutoVencord installer..."
         Updating = "Updating AutoVencord..."
         RunningUninstall = "Running AutoVencord uninstaller..."
@@ -421,6 +423,7 @@ function Get-MenuEnabledStates {
         (-not $Status.InstalledOk),
         $Status.InstalledOk,
         $Status.InstalledOk,
+        $true,
         $true
     )
 }
@@ -518,6 +521,10 @@ function Get-MenuItemColor {
         return [ConsoleColor]::Red
     }
 
+    if ($Index -eq 4) {
+        return [ConsoleColor]::DarkGray
+    }
+
     return [ConsoleColor]::Gray
 }
 
@@ -537,6 +544,10 @@ function Get-MenuSelectionBackground {
 
     if ($Index -eq 2) {
         return [ConsoleColor]::Red
+    }
+
+    if ($Index -eq 4) {
+        return [ConsoleColor]::DarkGray
     }
 
     return [ConsoleColor]::Cyan
@@ -754,7 +765,7 @@ function Show-Menu {
     $status = Get-StatusText -Ui $Ui
     $updateAvailable = Get-UpdateAvailability -Status $status -Ui $Ui
     Set-UpdateMenuStatus -Status $status -Ui $Ui -UpdateAvailable $updateAvailable
-    $menuOptions = @($Options[0], $Options[1], $Options[2], $Options[3])
+    $menuOptions = $Options
 
     $enabledStates = Get-MenuEnabledStates -Status $status
     $index = Resolve-MenuIndex -InitialIndex $InitialIndex -EnabledStates $enabledStates
@@ -798,6 +809,10 @@ function Show-Menu {
             if ($enabledStates[$index]) {
                 return $index
             }
+        }
+
+        if ($key.VirtualKeyCode -eq 27) {
+            return -1
         }
     }
 }
@@ -861,7 +876,7 @@ function Open-InstallFolder {
 
 $ui = Get-UiText
 $autoAction = $env:AUTOVENCORD_MENU_ACTION
-$options = @($ui.Install, $ui.Update, $ui.Uninstall, $ui.OpenFolder)
+$options = @($ui.Install, $ui.Update, $ui.Uninstall, $ui.OpenFolder, $ui.Exit)
 $selectedIndex = 0
 
 while ($true) {
@@ -873,12 +888,17 @@ while ($true) {
             "update" { $selection = 1 }
             "uninstall" { $selection = 2 }
             "open" { $selection = 3 }
+            "exit" { $selection = 4 }
         }
     }
 
     if ($null -eq $selection) {
         $selection = Show-Menu -Ui $ui -Options $options -InitialIndex $selectedIndex
         $selectedIndex = $selection
+    }
+
+    if ($selection -eq -1 -or $selection -eq 4) {
+        break
     }
 
     if (-not $autoAction -and $selection -eq 0) {
