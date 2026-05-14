@@ -199,6 +199,19 @@ function Write-SelectedLine {
     Write-Host $padded -ForegroundColor Black -BackgroundColor Cyan
 }
 
+function Get-MenuEnabledStates {
+    param(
+        [pscustomobject]$Status
+    )
+
+    return @(
+        (-not $Status.InstalledOk),
+        $Status.InstalledOk,
+        $Status.InstalledOk,
+        $true
+    )
+}
+
 function Clear-PendingConsoleInput {
     try {
         while ([Console]::KeyAvailable) {
@@ -212,6 +225,7 @@ function Render-Menu {
         [hashtable]$Ui,
         [pscustomobject]$Status,
         [string[]]$Options,
+        [bool[]]$EnabledStates,
         [int]$SelectedIndex,
         [bool]$FirstRender
     )
@@ -243,6 +257,7 @@ function Render-Menu {
 
     for ($i = 0; $i -lt $Options.Length; $i++) {
         $label = $Options[$i]
+        $enabled = $EnabledStates[$i]
         $contentWidth = [Math]::Max(20, $width - 6)
         $content = ("  {0}" -f $label)
 
@@ -252,7 +267,9 @@ function Render-Menu {
 
         $line = $content.PadRight($contentWidth)
 
-        if ($i -eq $SelectedIndex) {
+        if (-not $enabled) {
+            Write-PaddedLine -Text ($line + "   ") -ForegroundColor DarkGray -Width $width
+        } elseif ($i -eq $SelectedIndex) {
             Write-SelectedLine -Text ($line + " >>") -Width $width
         } else {
             Write-PaddedLine -Text ($line + "   ") -ForegroundColor Gray -Width $width
@@ -263,15 +280,64 @@ function Render-Menu {
     Write-PaddedLine -Text "" -Width $width
 }
 
+function Confirm-InstallSelection {
+    param(
+        [hashtable]$Ui
+    )
+
+    $rawUi = $Host.UI.RawUI
+    $width = [Math]::Max(62, $rawUi.WindowSize.Width - 1)
+
+    Clear-Host
+    $rawUi.CursorPosition = New-Object System.Management.Automation.Host.Coordinates 0, 0
+
+    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
+    Write-PaddedLine -Text ("{0}" -f $Ui.BannerTitle).PadLeft(([Math]::Floor(($width + $Ui.BannerTitle.Length) / 2))) -ForegroundColor Cyan -Width $width
+    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
+    Write-PaddedLine -Text "" -Width $width
+
+    if ($Ui.Language -eq "ru") {
+        Write-PaddedLine -Text "  Выбрана установка." -ForegroundColor Yellow -Width $width
+        Write-PaddedLine -Text "  Нажми Enter еще раз для подтверждения." -ForegroundColor Gray -Width $width
+        Write-PaddedLine -Text "  Нажми Esc, чтобы вернуться назад." -ForegroundColor DarkGray -Width $width
+    } else {
+        Write-PaddedLine -Text "  Install selected." -ForegroundColor Yellow -Width $width
+        Write-PaddedLine -Text "  Press Enter again to confirm installation." -ForegroundColor Gray -Width $width
+        Write-PaddedLine -Text "  Press Esc to go back." -ForegroundColor DarkGray -Width $width
+    }
+
+    Write-PaddedLine -Text "" -Width $width
+
+    while ($true) {
+        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+
+        if ($key.VirtualKeyCode -eq 13) {
+            return $true
+        }
+
+        if ($key.VirtualKeyCode -eq 27) {
+            return $false
+        }
+    }
+}
+
 function Show-Menu {
     param(
         [hashtable]$Ui,
         [string[]]$Options
     )
 
-    $index = 0
     $firstRender = $true
     $status = Get-StatusText -Ui $Ui
+    $enabledStates = Get-MenuEnabledStates -Status $status
+    $index = 0
+
+    for ($i = 0; $i -lt $enabledStates.Length; $i++) {
+        if ($enabledStates[$i]) {
+            $index = $i
+            break
+        }
+    }
 
     try {
         $Host.UI.RawUI.WindowTitle = $windowTitle
@@ -281,29 +347,37 @@ function Show-Menu {
     Clear-PendingConsoleInput
 
     while ($true) {
-        Render-Menu -Ui $Ui -Status $status -Options $Options -SelectedIndex $index -FirstRender $firstRender
+        Render-Menu -Ui $Ui -Status $status -Options $Options -EnabledStates $enabledStates -SelectedIndex $index -FirstRender $firstRender
         $firstRender = $false
 
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 
         if ($key.VirtualKeyCode -eq 38) {
-            if ($index -gt 0) {
-                $index--
+            for ($i = $index - 1; $i -ge 0; $i--) {
+                if ($enabledStates[$i]) {
+                    $index = $i
+                    break
+                }
             }
 
             continue
         }
 
         if ($key.VirtualKeyCode -eq 40) {
-            if ($index -lt ($Options.Length - 1)) {
-                $index++
+            for ($i = $index + 1; $i -lt $Options.Length; $i++) {
+                if ($enabledStates[$i]) {
+                    $index = $i
+                    break
+                }
             }
 
             continue
         }
 
         if ($key.VirtualKeyCode -eq 13) {
-            return $index
+            if ($enabledStates[$index]) {
+                return $index
+            }
         }
     }
 }
@@ -383,6 +457,12 @@ if ($autoAction) {
 
 if ($null -eq $selection) {
     $selection = Show-Menu -Ui $ui -Options @($ui.Install, $ui.Update, $ui.Uninstall, $ui.OpenFolder)
+}
+
+if (-not $autoAction -and $selection -eq 0) {
+    if (-not (Confirm-InstallSelection -Ui $ui)) {
+        $selection = Show-Menu -Ui $ui -Options @($ui.Install, $ui.Update, $ui.Uninstall, $ui.OpenFolder)
+    }
 }
 
 Clear-Host
