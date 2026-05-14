@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "dgSpecHash": "6jFNnus/3vQ=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\NM\\Documents\\Codex\\2026-05-07\\new-chat\\AutoVencord_repo\\src\\AutoVencord.Tui\\AutoVencord.Tui.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\NM\\.nuget\\packages\\nstack.core\\1.1.1\\nstack.core.1.1.1.nupkg.sha512",
+    "C:\\Users\\NM\\.nuget\\packages\\system.codedom\\9.0.4\\system.codedom.9.0.4.nupkg.sha512",
+    "C:\\Users\\NM\\.nuget\\packages\\system.management\\9.0.4\\system.management.9.0.4.nupkg.sha512",
+    "C:\\Users\\NM\\.nuget\\packages\\system.valuetuple\\4.5.0\\system.valuetuple.4.5.0.nupkg.sha512",
+    "C:\\Users\\NM\\.nuget\\packages\\terminal.gui\\1.19.0\\terminal.gui.1.19.0.nupkg.sha512"
+  ],
+  "logs": []
+}

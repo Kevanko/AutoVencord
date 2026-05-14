@@ -1,12 +1,22 @@
 $ErrorActionPreference = "Stop"
 
-$installerUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/AutoVencord-OneClick.bat"
+$repoBaseUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/main"
+$installerUrl = "$repoBaseUrl/AutoVencord-OneClick.bat"
+$dotnetInstallUrl = "https://dot.net/v1/dotnet-install.ps1"
 $tempDir = Join-Path $env:TEMP "AutoVencord"
 $batPath = Join-Path $tempDir "AutoVencord-OneClick.bat"
 $installedBaseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $uninstallPath = Join-Path $installedBaseDir "uninstall.bat"
 $windowTitle = "AutoVencord"
 $taskName = "AutoVencord Watchdog"
+$tuiRootDir = Join-Path $installedBaseDir "tui"
+$tuiProjectDir = Join-Path $tuiRootDir "src\\AutoVencord.Tui"
+$tuiProjectPath = Join-Path $tuiProjectDir "AutoVencord.Tui.csproj"
+$tuiProgramPath = Join-Path $tuiProjectDir "Program.cs"
+$tuiNuGetConfigPath = Join-Path $tuiRootDir "NuGet.Config"
+$tuiResultPath = Join-Path $tuiRootDir "selection.txt"
+$localDotNetDir = Join-Path $installedBaseDir ".dotnet"
+$localDotNetPath = Join-Path $localDotNetDir "dotnet.exe"
 
 function Enable-Tls12IfAvailable {
     try {
@@ -16,6 +26,7 @@ function Enable-Tls12IfAvailable {
 
 function Download-File($url, $outFile) {
     Enable-Tls12IfAvailable
+    New-Item -ItemType Directory -Force -Path ([System.IO.Path]::GetDirectoryName($outFile)) | Out-Null
 
     if (Get-Command Invoke-WebRequest -ErrorAction SilentlyContinue) {
         Invoke-WebRequest -UseBasicParsing $url -OutFile $outFile
@@ -43,6 +54,7 @@ function Get-UiText {
 
     if ($language -eq "ru") {
         return @{
+            Language = "ru"
             BannerTitle = "AutoVencord"
             BannerHint = Join-CodePoints @(1057,1090,1088,1077,1083,1082,1080,32,1074,1074,1077,1088,1093,47,1074,1085,1080,1079,32,45,32,1074,1099,1073,1086,1088,44,32,69,110,116,101,114,32,45,32,1079,1072,1087,1091,1089,1082)
             SectionTitle = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1082,1072,32,1080,32,1086,1073,1089,1083,1091,1078,1080,1074,1072,1085,1080,1077)
@@ -62,10 +74,15 @@ function Get-UiText {
             Updating = Join-CodePoints @(1054,1073,1085,1086,1074,1083,1103,1102,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
             RunningUninstall = Join-CodePoints @(1047,1072,1087,1091,1089,1082,1072,1102,32,1091,1076,1072,1083,1077,1085,1080,1077,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
             MissingUninstall = Join-CodePoints @(65,117,116,111,86,101,110,99,111,114,100,32,1085,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085,46)
+            PreparingUi = Join-CodePoints @(1055,1086,1076,1075,1086,1090,1072,1074,1083,1080,1074,1072,1102,32,1085,1086,1074,1099,1081,32,1080,1085,1090,1077,1088,1072,1082,1090,1080,1074,1085,1099,1081,32,1080,1085,1090,1077,1088,1092,1077,1081,1089,46,46,46)
+            InstallingSdk = Join-CodePoints @(1059,1089,1090,1072,1085,1072,1074,1083,1080,1074,1072,1102,32,1083,1086,1082,1072,1083,1100,1085,1099,1081,32,46,78,69,84,32,83,68,75,32,1076,1083,1103,32,84,85,73,45,1084,1077,1085,1102,46,46,46)
+            BuildingUi = Join-CodePoints @(1057,1086,1073,1080,1088,1072,1102,32,84,85,73,45,1080,1085,1090,1077,1088,1092,1077,1081,1089,46,46,46)
+            FallbackMenu = Join-CodePoints @(1053,1086,1074,1099,1081,32,84,85,73,32,1080,1085,1090,1077,1088,1092,1077,1081,1089,32,1085,1077,32,1079,1072,1087,1091,1089,1090,1080,1083,1089,1103,44,32,1087,1077,1088,1077,1093,1086,1078,1091,32,1082,32,1088,1077,1079,1077,1088,1074,1085,1086,1084,1091,32,1084,1077,1085,1102,46)
         }
     }
 
     return @{
+        Language = "en"
         BannerTitle = "AutoVencord"
         BannerHint = "Use Up/Down arrows to move, Enter to run"
         SectionTitle = "Setup and Maintenance"
@@ -85,6 +102,10 @@ function Get-UiText {
         Updating = "Updating AutoVencord..."
         RunningUninstall = "Running AutoVencord uninstaller..."
         MissingUninstall = "AutoVencord is not installed."
+        PreparingUi = "Preparing the new interactive interface..."
+        InstallingSdk = "Installing a local .NET SDK for the TUI menu..."
+        BuildingUi = "Building the TUI interface..."
+        FallbackMenu = "The new TUI could not start. Falling back to the basic menu."
     }
 }
 
@@ -143,6 +164,144 @@ function Get-StatusText {
     }
 }
 
+function Test-DotNetSdk {
+    param(
+        [string]$DotNetPath
+    )
+
+    if (-not (Test-Path $DotNetPath)) {
+        return $false
+    }
+
+    try {
+        $sdks = & $DotNetPath --list-sdks 2>$null
+        return [bool]($sdks | Where-Object { $_ -match '^8\.' })
+    } catch {
+        return $false
+    }
+}
+
+function Get-DotNetCommand {
+    $globalDotNet = Get-Command dotnet -ErrorAction SilentlyContinue
+    if ($globalDotNet -and (Test-DotNetSdk -DotNetPath $globalDotNet.Source)) {
+        return $globalDotNet.Source
+    }
+
+    $candidatePaths = @()
+
+    if ($env:ProgramFiles) {
+        $candidatePaths += (Join-Path $env:ProgramFiles "dotnet\\dotnet.exe")
+    }
+
+    $programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+    if ($programFilesX86) {
+        $candidatePaths += (Join-Path $programFilesX86 "dotnet\\dotnet.exe")
+    }
+
+    foreach ($candidatePath in $candidatePaths) {
+        if (Test-DotNetSdk -DotNetPath $candidatePath) {
+            return $candidatePath
+        }
+    }
+
+    if (Test-DotNetSdk -DotNetPath $localDotNetPath) {
+        return $localDotNetPath
+    }
+
+    return $null
+}
+
+function Ensure-LocalDotNetSdk {
+    param(
+        [hashtable]$Ui
+    )
+
+    $existing = Get-DotNetCommand
+    if ($existing) {
+        return $existing
+    }
+
+    Write-Host $Ui.InstallingSdk -ForegroundColor Cyan
+
+    $installScriptPath = Join-Path $tempDir "dotnet-install.ps1"
+    Download-File $dotnetInstallUrl $installScriptPath
+    New-Item -ItemType Directory -Force -Path $localDotNetDir | Out-Null
+
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installScriptPath -Channel 8.0 -Quality GA -InstallDir $localDotNetDir
+
+    if (-not (Test-DotNetSdk -DotNetPath $localDotNetPath)) {
+        throw ".NET SDK installation failed."
+    }
+
+    return $localDotNetPath
+}
+
+function Ensure-TuiProjectFiles {
+    New-Item -ItemType Directory -Force -Path $tuiProjectDir | Out-Null
+
+    Download-File "$repoBaseUrl/NuGet.Config" $tuiNuGetConfigPath
+    Download-File "$repoBaseUrl/src/AutoVencord.Tui/AutoVencord.Tui.csproj" $tuiProjectPath
+    Download-File "$repoBaseUrl/src/AutoVencord.Tui/Program.cs" $tuiProgramPath
+}
+
+function Invoke-TuiMenu {
+    param(
+        [hashtable]$Ui,
+        [pscustomobject]$Status
+    )
+
+    Write-Host $Ui.PreparingUi -ForegroundColor Cyan
+
+    try {
+        $dotNetPath = Ensure-LocalDotNetSdk -Ui $Ui
+        Ensure-TuiProjectFiles
+
+        Write-Host $Ui.BuildingUi -ForegroundColor Cyan
+        & $dotNetPath build $tuiProjectPath -nologo -clp:ErrorsOnly --configfile $tuiNuGetConfigPath | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            return $null
+        }
+
+        $dllPath = Join-Path $tuiProjectDir "bin\\Debug\\net8.0\\AutoVencord.Tui.dll"
+        if (-not (Test-Path $dllPath)) {
+            return $null
+        }
+
+        if (Test-Path $tuiResultPath) {
+            Remove-Item $tuiResultPath -Force -ErrorAction SilentlyContinue
+        }
+
+        $tuiArguments = @(
+            $dllPath
+            "--lang"
+            $Ui.Language
+            "--installed"
+            $Status.InstalledOk.ToString().ToLowerInvariant()
+            "--watchdog"
+            $Status.RawWatchdogState
+            "--result-file"
+            $tuiResultPath
+        )
+
+        if ($env:AUTOVENCORD_TUI_TEST_ACTION) {
+            $tuiArguments += @("--auto-action", $env:AUTOVENCORD_TUI_TEST_ACTION)
+        }
+
+        & $dotNetPath @tuiArguments
+
+        if (Test-Path $tuiResultPath) {
+            $action = (Get-Content $tuiResultPath -ErrorAction SilentlyContinue | Select-Object -Last 1).Trim()
+            if ($action) {
+                return $action
+            }
+        }
+    } catch {
+        return $null
+    }
+
+    return $null
+}
+
 function Write-PaddedLine {
     param(
         [string]$Text = "",
@@ -168,7 +327,7 @@ function Write-SelectedLine {
     Write-Host $padded -ForegroundColor Black -BackgroundColor Cyan
 }
 
-function Render-Menu {
+function Render-BasicMenu {
     param(
         [hashtable]$Ui,
         [pscustomobject]$Status,
@@ -221,25 +380,24 @@ function Render-Menu {
     }
 
     Write-PaddedLine -Text "" -Width $width
-    Write-PaddedLine -Text "" -Width $width
 }
 
-function Show-Menu {
+function Show-BasicMenu {
     param(
         [hashtable]$Ui,
+        [pscustomobject]$Status,
         [string[]]$Options
     )
 
     $index = 0
     $firstRender = $true
-    $status = Get-StatusText -Ui $Ui
 
     try {
         $Host.UI.RawUI.WindowTitle = $windowTitle
     } catch {}
 
     while ($true) {
-        Render-Menu -Ui $Ui -Status $status -Options $Options -SelectedIndex $index -FirstRender $firstRender
+        Render-BasicMenu -Ui $Ui -Status $Status -Options $Options -SelectedIndex $index -FirstRender $firstRender
         $firstRender = $false
 
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
@@ -261,9 +419,29 @@ function Show-Menu {
         }
 
         if ($key.VirtualKeyCode -eq 13) {
-            return $index
+            return @("install", "update", "uninstall", "open")[$index]
         }
     }
+}
+
+function Resolve-MenuAction {
+    param(
+        [hashtable]$Ui,
+        [pscustomobject]$Status
+    )
+
+    $autoAction = $env:AUTOVENCORD_MENU_ACTION
+    if ($autoAction) {
+        return $autoAction.ToLowerInvariant()
+    }
+
+    $action = Invoke-TuiMenu -Ui $Ui -Status $Status
+    if ($action) {
+        return $action
+    }
+
+    Write-Host $Ui.FallbackMenu -ForegroundColor Yellow
+    return Show-BasicMenu -Ui $Ui -Status $Status -Options @($Ui.Install, $Ui.Update, $Ui.Uninstall, $Ui.OpenFolder)
 }
 
 function Invoke-Install {
@@ -327,30 +505,15 @@ function Open-InstallFolder {
 }
 
 $ui = Get-UiText
-$selection = $null
-$autoAction = $env:AUTOVENCORD_MENU_ACTION
-
-if ($autoAction) {
-    switch ($autoAction.ToLowerInvariant()) {
-        "install" { $selection = 0 }
-        "update" { $selection = 1 }
-        "uninstall" { $selection = 2 }
-        "open" { $selection = 3 }
-    }
-}
-
-if ($null -eq $selection) {
-    $selection = Show-Menu -Ui $ui -Options @($ui.Install, $ui.Update, $ui.Uninstall, $ui.OpenFolder)
-}
+$status = Get-StatusText -Ui $ui
+$selection = Resolve-MenuAction -Ui $ui -Status $status
 
 Clear-Host
 
-if ($selection -eq 0) {
-    Invoke-Install -Ui $ui
-} elseif ($selection -eq 1) {
-    Invoke-Update -Ui $ui
-} elseif ($selection -eq 2) {
-    Invoke-Uninstall -Ui $ui
-} else {
-    Open-InstallFolder
+switch ($selection) {
+    "install" { Invoke-Install -Ui $ui }
+    "update" { Invoke-Update -Ui $ui }
+    "uninstall" { Invoke-Uninstall -Ui $ui }
+    "open" { Open-InstallFolder }
+    default { Open-InstallFolder }
 }
