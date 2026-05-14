@@ -45,7 +45,7 @@ This project is intended for Windows versions that are able to run the target Di
 PowerShell one-command install:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]3072; iex ((New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1'))"
+irm https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1 | iex
 ```
 
 Manual BAT install:
@@ -134,7 +134,7 @@ One-click BAT при запуске сам проверяет GitHub на нал
 Установка одной командой PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]3072; iex ((New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1'))"
+irm https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1 | iex
 ```
 
 Ручная установка через BAT:
