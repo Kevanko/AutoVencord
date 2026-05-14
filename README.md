@@ -1,6 +1,6 @@
 # AutoVencord
 
-![AutoVencord banner](./assets/banner.svg)
+![AutoVencord EN preview](./assets/banner-en.svg)
 
 One-click Windows setup that automatically re-patches Vencord after Discord updates using Task Scheduler and a low-overhead `FileSystemWatcher`.
 
@@ -81,6 +81,8 @@ Run:
 
 ## RU
 
+![AutoVencord RU preview](./assets/banner-ru.svg)
+
 ### Что делает
 
 `AutoVencord-OneClick.bat` ставит маленький локальный helper в `%LOCALAPPDATA%\AutoVencord`, скачивает официальный `VencordInstallerCli.exe`, один раз патчит Discord и создаёт одну фоновую задачу Планировщика под названием `AutoVencord Watchdog`.
@@ -103,7 +105,7 @@ Watcher:
 
 ### Совместимость
 
-Скрипты написаны так, чтобы быть максимально дружелюбными к старым Windows-конфигациям:
+Скрипты написаны так, чтобы быть максимально дружелюбными к старым Windows-конфигурациям:
 
 - обычный batch + Windows PowerShell
 - fallback на `schtasks.exe`, если нет новых PowerShell cmdlet для Планировщика

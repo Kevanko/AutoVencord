@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" fill="none">
+  <rect width="1280" height="640" rx="32" fill="#0B1020"/>
+  <rect x="32" y="32" width="1216" height="576" rx="28" fill="url(#bg)"/>
+  <circle cx="1010" cy="170" r="150" fill="#6D5EF5" fill-opacity="0.16"/>
+  <circle cx="220" cy="500" r="170" fill="#38D39F" fill-opacity="0.12"/>
+  <rect x="88" y="98" width="360" height="54" rx="27" fill="#151D34"/>
+  <text x="116" y="133" fill="#A6B8FF" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700">Windows + Discord + Vencord</text>
+  <text x="88" y="236" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="72" font-weight="800">AutoVencord</text>
+  <text x="88" y="300" fill="#D3DBF3" font-family="Segoe UI, Arial, sans-serif" font-size="31" font-weight="500">Автоперепатч Vencord после обновлений Discord</text>
+  <text x="88" y="346" fill="#93A7DE" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="500">Установка в один клик • Watcher по событиям • Планировщик • Ротация логов</text>
+  <rect x="88" y="420" width="372" height="88" rx="22" fill="#121A2F" stroke="#30416E"/>
+  <text x="120" y="472" fill="#91FFD0" font-family="Consolas, monospace" font-size="27">AutoVencord-OneClick.bat</text>
+  <text x="120" y="503" fill="#A9B9E8" font-family="Segoe UI, Arial, sans-serif" font-size="18">Один файл для быстрой установки</text>
+  <rect x="758" y="138" width="382" height="334" rx="28" fill="#101729" stroke="#34457C"/>
+  <rect x="790" y="178" width="320" height="58" rx="15" fill="#19264A"/>
+  <text x="838" y="215" fill="#F5F7FF" font-family="Segoe UI, Arial, sans-serif" font-size="25" font-weight="700">AutoVencord Watchdog</text>
+  <rect x="790" y="262" width="320" height="48" rx="12" fill="#141D35"/>
+  <rect x="790" y="326" width="320" height="48" rx="12" fill="#141D35"/>
+  <rect x="790" y="390" width="320" height="48" rx="12" fill="#141D35"/>
+  <text x="807" y="292" fill="#B7C7F3" font-family="Segoe UI, Arial, sans-serif" font-size="21">Ловит изменения папок app-*</text>
+  <text x="823" y="356" fill="#B7C7F3" font-family="Segoe UI, Arial, sans-serif" font-size="21">Патчит только когда нужно</text>
+  <text x="812" y="420" fill="#B7C7F3" font-family="Segoe UI, Arial, sans-serif" font-size="21">Пишет лог и ротирует его</text>
+  <defs>
+    <linearGradient id="bg" x1="52" y1="40" x2="1210" y2="600" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#131B32"/>
+      <stop offset="1" stop-color="#0B1226"/>
+    </linearGradient>
+  </defs>
+</svg>
