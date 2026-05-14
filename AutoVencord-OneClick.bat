@@ -46,6 +46,7 @@ param(
 
 $ErrorActionPreference = "SilentlyContinue"
 $latestUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/AutoVencord-OneClick.bat"
+$latestFallbackUrl = "https://github.com/Kevanko/AutoVencord/raw/main/AutoVencord-OneClick.bat"
 $freshMarker = "function Invoke-SchtasksSafe {"
 
 function Enable-Tls12IfAvailable {
@@ -66,11 +67,6 @@ function Download-File($url, $outFile) {
     $client.DownloadFile($url, $outFile)
 }
 
-function Get-CacheBustedUrl($url) {
-    $separator = if ($url -like "*?*") { "&" } else { "?" }
-    return "{0}{1}ts={2}" -f $url, $separator, ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
-}
-
 function Test-FreshPayload($path) {
     if (-not (Test-Path $path)) {
         return $false
@@ -82,6 +78,36 @@ function Test-FreshPayload($path) {
     } catch {
         return $false
     }
+}
+
+function Get-SelfUpdateCandidateUrls() {
+    return @(
+        $latestUrl,
+        $latestFallbackUrl,
+        ("{0}?raw=1" -f $latestFallbackUrl)
+    )
+}
+
+function Download-FreshBatch($outFile) {
+    $lastError = $null
+
+    foreach ($url in (Get-SelfUpdateCandidateUrls)) {
+        try {
+            Download-File $url $outFile
+
+            if (Test-FreshPayload $outFile) {
+                return
+            }
+        } catch {
+            $lastError = $_
+        }
+    }
+
+    if ($lastError) {
+        throw $lastError
+    }
+
+    throw "Downloaded AutoVencord batch is stale or invalid."
 }
 
 function Test-SameFile($left, $right) {
@@ -115,16 +141,7 @@ try {
     }
 
     $tempBat = Join-Path $env:TEMP ("AutoVencord-OneClick-" + [guid]::NewGuid().ToString() + ".bat")
-    Download-File (Get-CacheBustedUrl $latestUrl) $tempBat
-
-    if (-not (Test-FreshPayload $tempBat)) {
-        Start-Sleep -Milliseconds 300
-        Download-File (Get-CacheBustedUrl $latestUrl) $tempBat
-    }
-
-    if (-not (Test-FreshPayload $tempBat)) {
-        throw "Downloaded AutoVencord batch is stale or invalid."
-    }
+    Download-FreshBatch $tempBat
 
     if (Test-SameFile $SelfPath $tempBat) {
         Remove-Item $tempBat -Force -ErrorAction SilentlyContinue

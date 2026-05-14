@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $installerUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/AutoVencord-OneClick.bat"
+$installerFallbackUrl = "https://github.com/Kevanko/AutoVencord/raw/main/AutoVencord-OneClick.bat"
 $installerFreshMarker = "function Invoke-SchtasksSafe {"
 $tempDir = Join-Path $env:TEMP "AutoVencord"
 $batPath = Join-Path $tempDir "AutoVencord-OneClick.bat"
@@ -30,15 +31,6 @@ function Download-File($url, $outFile) {
     $client.DownloadFile($url, $outFile)
 }
 
-function Get-CacheBustedUrl {
-    param(
-        [string]$Url
-    )
-
-    $separator = if ($Url -like "*?*") { "&" } else { "?" }
-    return "{0}{1}ts={2}" -f $Url, $separator, ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
-}
-
 function Test-InstallerPayload {
     param(
         [string]$Path
@@ -54,6 +46,41 @@ function Test-InstallerPayload {
     } catch {
         return $false
     }
+}
+
+function Get-InstallerCandidateUrls {
+    return @(
+        $installerUrl,
+        $installerFallbackUrl,
+        ("{0}?raw=1" -f $installerFallbackUrl)
+    )
+}
+
+function Download-FreshInstallerPayload {
+    param(
+        [string]$OutFile
+    )
+
+    $urls = Get-InstallerCandidateUrls
+    $lastError = $null
+
+    foreach ($url in $urls) {
+        try {
+            Download-File $url $OutFile
+
+            if (Test-InstallerPayload -Path $OutFile) {
+                return
+            }
+        } catch {
+            $lastError = $_
+        }
+    }
+
+    if ($lastError) {
+        throw $lastError
+    }
+
+    throw "Downloaded installer payload is stale or invalid."
 }
 
 function Join-CodePoints {
@@ -274,16 +301,7 @@ function Get-UpdateAvailability {
     try {
         $updateCheckPath = Join-Path $tempDir "AutoVencord-update-check.bat"
         New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
-        Download-File (Get-CacheBustedUrl -Url $installerUrl) $updateCheckPath
-
-        if (-not (Test-InstallerPayload -Path $updateCheckPath)) {
-            Start-Sleep -Milliseconds 300
-            Download-File (Get-CacheBustedUrl -Url $installerUrl) $updateCheckPath
-        }
-
-        if (-not (Test-InstallerPayload -Path $updateCheckPath)) {
-            return $false
-        }
+        Download-FreshInstallerPayload -OutFile $updateCheckPath
 
         if (-not (Test-Path $installedInstallerPath)) {
             return $true
@@ -416,17 +434,7 @@ function Download-LatestInstaller {
 
     New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
     Write-Host $Ui.Downloading -ForegroundColor Cyan
-    Download-File (Get-CacheBustedUrl -Url $installerUrl) $batPath
-
-    if (-not (Test-InstallerPayload -Path $batPath)) {
-        Start-Sleep -Milliseconds 300
-        Download-File (Get-CacheBustedUrl -Url $installerUrl) $batPath
-    }
-
-    if (-not (Test-InstallerPayload -Path $batPath)) {
-        throw "Downloaded installer payload is stale or invalid."
-    }
-
+    Download-FreshInstallerPayload -OutFile $batPath
     return $batPath
 }
 
