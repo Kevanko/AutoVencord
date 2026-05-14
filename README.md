@@ -48,7 +48,7 @@ PowerShell one-command install:
 irm https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1 | iex
 ```
 
-The PowerShell bootstrap opens a small menu with arrow-key navigation:
+The PowerShell bootstrap opens a menu with arrow-key navigation, auto-selects English or Russian from the system UI language, and shows current install/watchdog status:
 
 - `Install AutoVencord`
 - `Update AutoVencord`
@@ -144,7 +144,7 @@ One-click BAT при запуске сам проверяет GitHub на нал
 irm https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1 | iex
 ```
 
-PowerShell bootstrap открывает маленькое меню с выбором стрелками:
+PowerShell bootstrap открывает меню с выбором стрелками, автоматически берет русский или английский язык из системного интерфейса и показывает текущий статус установки/watchdog:
 
 - `Install AutoVencord`
 - `Update AutoVencord`

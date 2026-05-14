@@ -5,7 +5,7 @@ $tempDir = Join-Path $env:TEMP "AutoVencord"
 $batPath = Join-Path $tempDir "AutoVencord-OneClick.bat"
 $installedBaseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $uninstallPath = Join-Path $installedBaseDir "uninstall.bat"
-$windowTitle = "AutoVencord Console Menu"
+$windowTitle = "AutoVencord"
 $taskName = "AutoVencord Watchdog"
 
 function Enable-Tls12IfAvailable {
@@ -26,13 +26,66 @@ function Download-File($url, $outFile) {
     $client.DownloadFile($url, $outFile)
 }
 
-function Write-Banner {
-    Write-Host "============================================================" -ForegroundColor DarkCyan
-    Write-Host "                    AutoVencord Console Menu" -ForegroundColor Cyan
-    Write-Host "============================================================" -ForegroundColor DarkCyan
-    Write-Host ""
-    Write-Host "Choose an action with Up/Down arrows and press Enter." -ForegroundColor DarkGray
-    Write-Host ""
+function Join-CodePoints {
+    param(
+        [int[]]$Codes
+    )
+
+    return (-join ($Codes | ForEach-Object { [char]$_ }))
+}
+
+function Get-UiText {
+    $language = "en"
+
+    try {
+        $language = [System.Globalization.CultureInfo]::CurrentUICulture.TwoLetterISOLanguageName
+    } catch {}
+
+    if ($language -eq "ru") {
+        return @{
+            BannerTitle = "AutoVencord"
+            BannerHint = Join-CodePoints @(1057,1090,1088,1077,1083,1082,1080,32,1074,1074,1077,1088,1093,47,1074,1085,1080,1079,32,45,32,1074,1099,1073,1086,1088,44,32,69,110,116,101,114,32,45,32,1079,1072,1087,1091,1089,1082)
+            SectionTitle = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1082,1072,32,1080,32,1086,1073,1089,1083,1091,1078,1080,1074,1072,1085,1080,1077)
+            Installed = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1083,1077,1085,1086)
+            Yes = Join-CodePoints @(1044,1072)
+            No = Join-CodePoints @(1053,1077,1090)
+            Watchdog = "Watchdog"
+            Active = Join-CodePoints @(1040,1082,1090,1080,1074,1077,1085)
+            Inactive = Join-CodePoints @(1053,1077,1072,1082,1090,1080,1074,1077,1085)
+            NotInstalled = Join-CodePoints @(1053,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085)
+            Unknown = Join-CodePoints @(1053,1077,1080,1079,1074,1077,1089,1090,1085,1086)
+            Install = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1080,1090,1100)
+            Update = Join-CodePoints @(1054,1073,1085,1086,1074,1080,1090,1100)
+            Uninstall = Join-CodePoints @(1059,1076,1072,1083,1080,1090,1100)
+            OpenFolder = Join-CodePoints @(1054,1090,1082,1088,1099,1090,1100,32,1087,1072,1087,1082,1091)
+            Downloading = Join-CodePoints @(1057,1082,1072,1095,1080,1074,1072,1102,32,1072,1082,1090,1091,1072,1083,1100,1085,1099,1081,32,1091,1089,1090,1072,1085,1086,1074,1097,1080,1082,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
+            Updating = Join-CodePoints @(1054,1073,1085,1086,1074,1083,1103,1102,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
+            RunningUninstall = Join-CodePoints @(1047,1072,1087,1091,1089,1082,1072,1102,32,1091,1076,1072,1083,1077,1085,1080,1077,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
+            MissingUninstall = Join-CodePoints @(65,117,116,111,86,101,110,99,111,114,100,32,1085,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085,46)
+        }
+    }
+
+    return @{
+        BannerTitle = "AutoVencord"
+        BannerHint = "Use Up/Down arrows to move, Enter to run"
+        SectionTitle = "Setup and Maintenance"
+        Installed = "Installed"
+        Yes = "Yes"
+        No = "No"
+        Watchdog = "Watchdog"
+        Active = "Active"
+        Inactive = "Inactive"
+        NotInstalled = "Not installed"
+        Unknown = "Unknown"
+        Install = "Install"
+        Update = "Update"
+        Uninstall = "Uninstall"
+        OpenFolder = "Open Folder"
+        Downloading = "Downloading latest AutoVencord installer..."
+        Updating = "Updating AutoVencord..."
+        RunningUninstall = "Running AutoVencord uninstaller..."
+        MissingUninstall = "AutoVencord is not installed."
+    }
 }
 
 function Get-WatchdogState {
@@ -41,14 +94,14 @@ function Get-WatchdogState {
             $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
             return [string]$task.State
         } catch {
-            return "Not installed"
+            return "NotInstalled"
         }
     }
 
     try {
         $output = & schtasks.exe /Query /TN $taskName /FO LIST 2>$null
         if ($LASTEXITCODE -ne 0 -or -not $output) {
-            return "Not installed"
+            return "NotInstalled"
         }
 
         $statusLine = $output | Where-Object { $_ -like "Status:*" } | Select-Object -First 1
@@ -60,61 +113,122 @@ function Get-WatchdogState {
     return "Unknown"
 }
 
-function Write-StatusPanel {
-    $isInstalled = Test-Path $uninstallPath
-    $watchdogState = Get-WatchdogState
-
-    if ($isInstalled) {
-        Write-Host ("Installed : Yes") -ForegroundColor Green
-    } else {
-        Write-Host ("Installed : No") -ForegroundColor Yellow
-    }
-
-    if ($watchdogState -match "Ready|Running") {
-        Write-Host ("Watchdog  : Active ({0})" -f $watchdogState) -ForegroundColor Green
-    } elseif ($watchdogState -eq "Not installed") {
-        Write-Host ("Watchdog  : Not installed") -ForegroundColor Yellow
-    } else {
-        Write-Host ("Watchdog  : Inactive ({0})" -f $watchdogState) -ForegroundColor Yellow
-    }
-
-    Write-Host ""
-}
-
-function Write-MenuLine {
+function Get-StatusText {
     param(
-        [string]$Label,
-        [bool]$Selected
+        [hashtable]$Ui
     )
 
-    $text = ("  {0}" -f $Label).PadRight(34)
+    $isInstalled = Test-Path $uninstallPath
+    $watchdogState = Get-WatchdogState
+    $installedValue = if ($isInstalled) { $Ui.Yes } else { $Ui.No }
 
-    if ($Selected) {
-        Write-Host ($text + " <") -ForegroundColor Black -BackgroundColor Cyan
+    if ($watchdogState -match "Ready|Running") {
+        $watchdogValue = "{0} ({1})" -f $Ui.Active, $watchdogState
+    } elseif ($watchdogState -eq "NotInstalled") {
+        $watchdogValue = $Ui.NotInstalled
+    } elseif ($watchdogState -eq "Unknown") {
+        $watchdogValue = $Ui.Unknown
     } else {
-        Write-Host ($text + "  ") -ForegroundColor Gray
+        $watchdogValue = "{0} ({1})" -f $Ui.Inactive, $watchdogState
     }
+
+    return [pscustomobject]@{
+        InstalledLabel = $Ui.Installed
+        InstalledValue = $installedValue
+        InstalledOk = $isInstalled
+        WatchdogLabel = $Ui.Watchdog
+        WatchdogValue = $watchdogValue
+        WatchdogOk = ($watchdogState -match "Ready|Running")
+        RawWatchdogState = $watchdogState
+    }
+}
+
+function Write-PaddedLine {
+    param(
+        [string]$Text = "",
+        [ConsoleColor]$ForegroundColor = [ConsoleColor]::Gray,
+        [ConsoleColor]$BackgroundColor = [ConsoleColor]::Black,
+        [int]$Width = 80
+    )
+
+    $safeWidth = [Math]::Max(20, $Width)
+    $trimmed = if ($Text.Length -gt $safeWidth) { $Text.Substring(0, $safeWidth) } else { $Text }
+    $padded = $trimmed.PadRight($safeWidth)
+    Write-Host $padded -ForegroundColor $ForegroundColor -BackgroundColor $BackgroundColor
+}
+
+function Render-Menu {
+    param(
+        [hashtable]$Ui,
+        [string[]]$Options,
+        [int]$SelectedIndex,
+        [bool]$FirstRender
+    )
+
+    $rawUi = $Host.UI.RawUI
+    $width = [Math]::Max(62, $rawUi.WindowSize.Width - 1)
+
+    if ($FirstRender) {
+        Clear-Host
+    }
+
+    $rawUi.CursorPosition = New-Object System.Management.Automation.Host.Coordinates 0, 0
+    $status = Get-StatusText -Ui $Ui
+
+    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
+    Write-PaddedLine -Text ("{0}" -f $Ui.BannerTitle).PadLeft(([Math]::Floor(($width + $Ui.BannerTitle.Length) / 2))) -ForegroundColor Cyan -Width $width
+    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
+    Write-PaddedLine -Text "" -Width $width
+    Write-PaddedLine -Text $Ui.BannerHint -ForegroundColor DarkGray -Width $width
+    Write-PaddedLine -Text "" -Width $width
+    Write-PaddedLine -Text $Ui.SectionTitle -ForegroundColor Green -Width $width
+    Write-PaddedLine -Text "" -Width $width
+
+    $installedColor = if ($status.InstalledOk) { [ConsoleColor]::Green } else { [ConsoleColor]::Yellow }
+    $watchdogColor = if ($status.WatchdogOk) { [ConsoleColor]::Green } elseif ($status.RawWatchdogState -eq "NotInstalled") { [ConsoleColor]::Yellow } else { [ConsoleColor]::DarkYellow }
+
+    Write-PaddedLine -Text ("{0}: {1}" -f $status.InstalledLabel, $status.InstalledValue) -ForegroundColor $installedColor -Width $width
+    Write-PaddedLine -Text ("{0}: {1}" -f $status.WatchdogLabel, $status.WatchdogValue) -ForegroundColor $watchdogColor -Width $width
+    Write-PaddedLine -Text "" -Width $width
+
+    for ($i = 0; $i -lt $Options.Length; $i++) {
+        $label = $Options[$i]
+        $contentWidth = [Math]::Max(20, $width - 6)
+        $content = ("  {0}" -f $label)
+
+        if ($content.Length -gt $contentWidth) {
+            $content = $content.Substring(0, $contentWidth)
+        }
+
+        $line = $content.PadRight($contentWidth)
+
+        if ($i -eq $SelectedIndex) {
+            Write-PaddedLine -Text ($line + " >>") -ForegroundColor Black -BackgroundColor Cyan -Width $width
+        } else {
+            Write-PaddedLine -Text ($line + "   ") -ForegroundColor Gray -Width $width
+        }
+    }
+
+    Write-PaddedLine -Text "" -Width $width
+    Write-PaddedLine -Text "" -Width $width
 }
 
 function Show-Menu {
     param(
-        [string[]]$Options,
-        [string]$Title
+        [hashtable]$Ui,
+        [string[]]$Options
     )
 
     $index = 0
+    $firstRender = $true
+
+    try {
+        $Host.UI.RawUI.WindowTitle = $windowTitle
+    } catch {}
 
     while ($true) {
-        Clear-Host
-        $Host.UI.RawUI.WindowTitle = $windowTitle
-        Write-Banner
-        Write-Host ("{0}" -f $Title) -ForegroundColor Green
-        Write-Host ""
-        Write-StatusPanel
-
-        for ($i = 0; $i -lt $Options.Length; $i++) {
-            Write-MenuLine -Label $Options[$i] -Selected ($i -eq $index)
-        }
+        Render-Menu -Ui $Ui -Options $Options -SelectedIndex $index -FirstRender $firstRender
+        $firstRender = $false
 
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 
@@ -141,9 +255,12 @@ function Show-Menu {
 }
 
 function Invoke-Install {
-    New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+    param(
+        [hashtable]$Ui
+    )
 
-    Write-Host "Downloading latest AutoVencord installer..." -ForegroundColor Cyan
+    New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+    Write-Host $Ui.Downloading -ForegroundColor Cyan
     Download-File $installerUrl $batPath
 
     $oldSkipSelfUpdate = $env:AUTOVENCORD_SKIP_SELF_UPDATE
@@ -152,7 +269,6 @@ function Invoke-Install {
     try {
         $env:AUTOVENCORD_SKIP_SELF_UPDATE = "1"
         $env:AUTOVENCORD_NO_PAUSE = "1"
-
         & $batPath
         $exitCode = $LASTEXITCODE
 
@@ -166,11 +282,16 @@ function Invoke-Install {
 }
 
 function Invoke-Uninstall {
+    param(
+        [hashtable]$Ui
+    )
+
     if (-not (Test-Path $uninstallPath)) {
-        throw "AutoVencord is not installed. Missing file: $uninstallPath"
+        Write-Host $Ui.MissingUninstall -ForegroundColor Yellow
+        return
     }
 
-    Write-Host "Running AutoVencord uninstaller..." -ForegroundColor Yellow
+    Write-Host $Ui.RunningUninstall -ForegroundColor Yellow
     & $uninstallPath
     $exitCode = $LASTEXITCODE
 
@@ -180,8 +301,12 @@ function Invoke-Uninstall {
 }
 
 function Invoke-Update {
-    Write-Host "Updating AutoVencord..." -ForegroundColor Cyan
-    Invoke-Install
+    param(
+        [hashtable]$Ui
+    )
+
+    Write-Host $Ui.Updating -ForegroundColor Cyan
+    Invoke-Install -Ui $Ui
 }
 
 function Open-InstallFolder {
@@ -189,16 +314,31 @@ function Open-InstallFolder {
     Start-Process explorer.exe $installedBaseDir
 }
 
-$selection = Show-Menu -Options @("Install AutoVencord", "Update AutoVencord", "Uninstall AutoVencord", "Open AutoVencord Folder") -Title "Setup / Maintenance"
+$ui = Get-UiText
+$selection = $null
+$autoAction = $env:AUTOVENCORD_MENU_ACTION
+
+if ($autoAction) {
+    switch ($autoAction.ToLowerInvariant()) {
+        "install" { $selection = 0 }
+        "update" { $selection = 1 }
+        "uninstall" { $selection = 2 }
+        "open" { $selection = 3 }
+    }
+}
+
+if ($null -eq $selection) {
+    $selection = Show-Menu -Ui $ui -Options @($ui.Install, $ui.Update, $ui.Uninstall, $ui.OpenFolder)
+}
 
 Clear-Host
 
 if ($selection -eq 0) {
-    Invoke-Install
+    Invoke-Install -Ui $ui
 } elseif ($selection -eq 1) {
-    Invoke-Update
+    Invoke-Update -Ui $ui
 } elseif ($selection -eq 2) {
-    Invoke-Uninstall
+    Invoke-Uninstall -Ui $ui
 } else {
     Open-InstallFolder
 }
