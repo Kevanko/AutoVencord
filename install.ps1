@@ -10,6 +10,7 @@ $setupPath = Join-Path $tempDir "AutoVencord-Setup.ps1"
 $installedBaseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $installedInstallerPath = Join-Path $installedBaseDir "AutoVencord-OneClick.bat"
 $installedSetupPath = Join-Path $installedBaseDir "AutoVencord-Setup.ps1"
+$installedSetupHashPath = Join-Path $installedBaseDir "AutoVencord-Setup.sha256"
 $uninstallPath = Join-Path $installedBaseDir "uninstall.bat"
 $watchdogScriptPath = Join-Path $installedBaseDir "watchdog.ps1"
 $installedCliPath = Join-Path $installedBaseDir "VencordInstallerCli.exe"
@@ -61,10 +62,11 @@ function Get-InstallerCandidateUrls {
 
 function Download-FreshInstallerPayload {
     param(
-        [string]$OutFile
+        [string]$OutFile,
+        [switch]$AllowLocalFallback
     )
 
-    if (Test-InstallerPayload -Path $localSetupCandidate) {
+    if ($AllowLocalFallback -and (Test-InstallerPayload -Path $localSetupCandidate)) {
         Copy-Item -LiteralPath $localSetupCandidate -Destination $OutFile -Force
         return
     }
@@ -312,6 +314,61 @@ function Test-SameFileHash {
     }
 }
 
+function Get-FileSha256 {
+    param(
+        [string]$Path
+    )
+
+    if (-not (Test-Path $Path)) {
+        return $null
+    }
+
+    try {
+        return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+    } catch {
+        return $null
+    }
+}
+
+function Get-InstalledSetupHash {
+    $setupHash = Get-FileSha256 -Path $installedSetupPath
+    if ($setupHash) {
+        return $setupHash.ToUpperInvariant()
+    }
+
+    if (Test-Path $installedSetupHashPath) {
+        try {
+            $hash = (Get-Content -LiteralPath $installedSetupHashPath -Raw).Trim()
+
+            if ($hash -match "^[A-Fa-f0-9]{64}$") {
+                return $hash.ToUpperInvariant()
+            }
+        } catch {}
+    }
+
+    $batchHash = Get-FileSha256 -Path $installedInstallerPath
+    if ($batchHash) {
+        return $batchHash.ToUpperInvariant()
+    }
+
+    return $null
+}
+
+function Test-InstalledSetupMatches {
+    param(
+        [string]$CandidatePath
+    )
+
+    $candidateHash = Get-FileSha256 -Path $CandidatePath
+    $installedHash = Get-InstalledSetupHash
+
+    if (-not $candidateHash -or -not $installedHash) {
+        return $false
+    }
+
+    return $candidateHash.ToUpperInvariant() -eq $installedHash.ToUpperInvariant()
+}
+
 function Get-UpdateAvailability {
     param(
         [pscustomobject]$Status,
@@ -327,13 +384,7 @@ function Get-UpdateAvailability {
         New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
         Download-FreshInstallerPayload -OutFile $updateCheckPath
 
-        $installedComparablePath = if (Test-Path $installedSetupPath) { $installedSetupPath } else { $installedInstallerPath }
-
-        if (-not (Test-Path $installedComparablePath)) {
-            return $true
-        }
-
-        return (-not (Test-SameFileHash -LeftPath $installedComparablePath -RightPath $updateCheckPath))
+        return (-not (Test-InstalledSetupMatches -CandidatePath $updateCheckPath))
     } catch {
         return $false
     }
@@ -525,12 +576,13 @@ function Confirm-InstallSelection {
 
 function Download-LatestInstaller {
     param(
-        [hashtable]$Ui
+        [hashtable]$Ui,
+        [switch]$AllowLocalFallback
     )
 
     New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
     Write-Host $Ui.Downloading -ForegroundColor Cyan
-    Download-FreshInstallerPayload -OutFile $setupPath
+    Download-FreshInstallerPayload -OutFile $setupPath -AllowLocalFallback:$AllowLocalFallback
     return $setupPath
 }
 
@@ -627,7 +679,7 @@ function Invoke-Install {
         [hashtable]$Ui
     )
 
-    $downloadedInstallerPath = Download-LatestInstaller -Ui $Ui
+    $downloadedInstallerPath = Download-LatestInstaller -Ui $Ui -AllowLocalFallback
     Invoke-SetupScript -SetupScriptPath $downloadedInstallerPath
 }
 
@@ -664,9 +716,8 @@ function Invoke-Update {
 
     Write-Host $Ui.Updating -ForegroundColor Cyan
     $downloadedInstallerPath = Download-LatestInstaller -Ui $Ui
-    $installedComparablePath = if (Test-Path $installedSetupPath) { $installedSetupPath } else { $installedInstallerPath }
 
-    if ((Test-Path $installedComparablePath) -and (Test-SameFileHash -LeftPath $installedComparablePath -RightPath $downloadedInstallerPath)) {
+    if (Test-InstalledSetupMatches -CandidatePath $downloadedInstallerPath) {
         Write-Host $Ui.AlreadyLatest -ForegroundColor Green
         return $false
     }

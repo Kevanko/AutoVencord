@@ -9,6 +9,7 @@ $baseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $installerPath = Join-Path $baseDir "VencordInstallerCli.exe"
 $installerBatchCopyPath = Join-Path $baseDir "AutoVencord-OneClick.bat"
 $installerSetupCopyPath = Join-Path $baseDir "AutoVencord-Setup.ps1"
+$installerSetupHashPath = Join-Path $baseDir "AutoVencord-Setup.sha256"
 $watchdogPath = Join-Path $baseDir "watchdog.ps1"
 $uninstallPath = Join-Path $baseDir "uninstall.bat"
 $taskName = "AutoVencord Watchdog"
@@ -293,6 +294,11 @@ if ($SourceBatPath -and (Test-Path $SourceBatPath)) {
 if ($SourceSetupPath -and (Test-Path $SourceSetupPath)) {
     Copy-Item -LiteralPath $SourceSetupPath -Destination $installerSetupCopyPath -Force
     Write-SetupLog "Installer setup copied"
+}
+
+if (Test-Path $installerSetupCopyPath) {
+    (Get-FileHash -LiteralPath $installerSetupCopyPath -Algorithm SHA256).Hash | Set-Content -LiteralPath $installerSetupHashPath -Encoding ASCII
+    Write-SetupLog "Installer setup hash written"
 }
 
 Write-Host "Downloading official Vencord installer..."
@@ -642,6 +648,7 @@ del /f /q "%BASE_DIR%watchdog.ps1" >nul 2>&1
 del /f /q "%BASE_DIR%VencordInstallerCli.exe" >nul 2>&1
 del /f /q "%BASE_DIR%AutoVencord-OneClick.bat" >nul 2>&1
 del /f /q "%BASE_DIR%AutoVencord-Setup.ps1" >nul 2>&1
+del /f /q "%BASE_DIR%AutoVencord-Setup.sha256" >nul 2>&1
 del /f /q "%BASE_DIR%last-action.log" >nul 2>&1
 del /f /q "%BASE_DIR%last-action.previous.log" >nul 2>&1
 > "%CLEANUP%" echo @echo off
