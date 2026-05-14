@@ -164,6 +164,13 @@ function Get-UiText {
             ConfirmInstallEnter = Join-CodePoints @(1053,1072,1078,1084,1080,32,69,110,116,101,114,32,1077,1097,1077,32,1088,1072,1079,32,1076,1083,1103,32,1087,1086,1076,1090,1074,1077,1088,1078,1076,1077,1085,1080,1103,46)
             ConfirmInstallEsc = Join-CodePoints @(1053,1072,1078,1084,1080,32,69,115,99,44,32,1095,1090,1086,1073,1099,32,1074,1077,1088,1085,1091,1090,1100,1089,1103,32,1085,1072,1079,1072,1076,46)
             UpdateAvailableSuffix = " *"
+            UpdateStatusLabel = Join-CodePoints @(1054,1073,1085,1086,1074,1083,1077,1085,1080,1077)
+            UpdateAvailable = Join-CodePoints @(1044,1086,1089,1090,1091,1087,1085,1086)
+            UpdateCurrent = Join-CodePoints @(1040,1082,1090,1091,1072,1083,1100,1085,1086)
+            UpdateUnavailable = Join-CodePoints @(1053,1077,1076,1086,1089,1090,1091,1087,1085,1086)
+            UpdateHintAvailable = Join-CodePoints @(1084,1086,1078,1085,1086,32,1086,1073,1085,1086,1074,1080,1090,1100)
+            UpdateHintCurrent = Join-CodePoints @(1072,1082,1090,1091,1072,1083,1100,1085,1086)
+            UpdateHintUnavailable = Join-CodePoints @(1085,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085)
         }
     }
 
@@ -193,6 +200,13 @@ function Get-UiText {
         ConfirmInstallEnter = "Press Enter again to confirm installation."
         ConfirmInstallEsc = "Press Esc to go back."
         UpdateAvailableSuffix = " *"
+        UpdateStatusLabel = "Update"
+        UpdateAvailable = "Available"
+        UpdateCurrent = "Current"
+        UpdateUnavailable = "Unavailable"
+        UpdateHintAvailable = "update available"
+        UpdateHintCurrent = "current"
+        UpdateHintUnavailable = "not installed"
     }
 }
 
@@ -268,13 +282,15 @@ function Write-PaddedLine {
 function Write-SelectedLine {
     param(
         [string]$Text = "",
-        [int]$Width = 80
+        [int]$Width = 80,
+        [ConsoleColor]$ForegroundColor = [ConsoleColor]::Black,
+        [ConsoleColor]$BackgroundColor = [ConsoleColor]::Cyan
     )
 
     $safeWidth = [Math]::Max(20, $Width)
     $trimmed = if ($Text.Length -gt $safeWidth) { $Text.Substring(0, $safeWidth) } else { $Text }
     $padded = $trimmed.PadRight($safeWidth)
-    Write-Host $padded -ForegroundColor Black -BackgroundColor Cyan
+    Write-Host $padded -ForegroundColor $ForegroundColor -BackgroundColor $BackgroundColor
 }
 
 function Test-SameFileHash {
@@ -307,7 +323,7 @@ function Get-UpdateAvailability {
     }
 
     try {
-        $updateCheckPath = Join-Path $tempDir "AutoVencord-update-check.bat"
+        $updateCheckPath = Join-Path $tempDir "AutoVencord-update-check.ps1"
         New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
         Download-FreshInstallerPayload -OutFile $updateCheckPath
 
@@ -334,6 +350,50 @@ function Get-MenuEnabledStates {
         $Status.InstalledOk,
         $true
     )
+}
+
+function Set-UpdateMenuStatus {
+    param(
+        [pscustomobject]$Status,
+        [hashtable]$Ui,
+        [bool]$UpdateAvailable
+    )
+
+    if (-not $Status.InstalledOk) {
+        $value = $Ui.UpdateUnavailable
+        $hint = $Ui.UpdateHintUnavailable
+        $state = "Unavailable"
+    } elseif ($UpdateAvailable) {
+        $value = $Ui.UpdateAvailable
+        $hint = $Ui.UpdateHintAvailable
+        $state = "Available"
+    } else {
+        $value = $Ui.UpdateCurrent
+        $hint = $Ui.UpdateHintCurrent
+        $state = "Current"
+    }
+
+    $Status | Add-Member -MemberType NoteProperty -Name UpdateLabel -Value $Ui.UpdateStatusLabel -Force
+    $Status | Add-Member -MemberType NoteProperty -Name UpdateValue -Value $value -Force
+    $Status | Add-Member -MemberType NoteProperty -Name UpdateHint -Value $hint -Force
+    $Status | Add-Member -MemberType NoteProperty -Name UpdateState -Value $state -Force
+    $Status | Add-Member -MemberType NoteProperty -Name UpdateAvailable -Value $UpdateAvailable -Force
+}
+
+function Get-UpdateColor {
+    param(
+        [pscustomobject]$Status
+    )
+
+    if ($Status.UpdateState -eq "Available") {
+        return [ConsoleColor]::Green
+    }
+
+    if ($Status.UpdateState -eq "Current") {
+        return [ConsoleColor]::Yellow
+    }
+
+    return [ConsoleColor]::DarkGray
 }
 
 function Clear-PendingConsoleInput {
@@ -377,26 +437,52 @@ function Render-Menu {
 
     Write-PaddedLine -Text ("{0}: {1}" -f $Status.InstalledLabel, $Status.InstalledValue) -ForegroundColor $installedColor -Width $width
     Write-PaddedLine -Text ("{0}: {1}" -f $Status.WatchdogLabel, $Status.WatchdogValue) -ForegroundColor $watchdogColor -Width $width
+
+    if ($Status.UpdateLabel) {
+        Write-PaddedLine -Text ("{0}: {1}" -f $Status.UpdateLabel, $Status.UpdateValue) -ForegroundColor (Get-UpdateColor -Status $Status) -Width $width
+    }
+
     Write-PaddedLine -Text "" -Width $width
 
     for ($i = 0; $i -lt $Options.Length; $i++) {
         $label = $Options[$i]
         $enabled = $EnabledStates[$i]
-        $contentWidth = [Math]::Max(20, $width - 6)
-        $content = ("  {0}" -f $label)
+        $marker = if ($i -eq $SelectedIndex) { " >>" } else { "   " }
+        $rightHint = if ($i -eq 1 -and $Status.UpdateHint) { $Status.UpdateHint } else { "" }
+        $contentWidth = [Math]::Max(20, $width - $marker.Length)
+        $left = ("  {0}" -f $label)
+        $right = if ($rightHint) { " " + $rightHint } else { "" }
 
-        if ($content.Length -gt $contentWidth) {
-            $content = $content.Substring(0, $contentWidth)
+        if ($right -and ($contentWidth - $right.Length) -ge 18) {
+            $leftWidth = $contentWidth - $right.Length
+            if ($left.Length -gt $leftWidth) {
+                $left = $left.Substring(0, $leftWidth)
+            }
+
+            $line = $left.PadRight($leftWidth) + $right + $marker
+        } else {
+            if ($left.Length -gt $contentWidth) {
+                $left = $left.Substring(0, $contentWidth)
+            }
+
+            $line = $left.PadRight($contentWidth) + $marker
         }
 
-        $line = $content.PadRight($contentWidth)
+        $lineColor = if ($i -eq 1) { Get-UpdateColor -Status $Status } else { [ConsoleColor]::Gray }
+        $selectedBackground = if ($i -eq 1 -and $Status.UpdateState -eq "Available") {
+            [ConsoleColor]::Green
+        } elseif ($i -eq 1 -and $Status.UpdateState -eq "Current") {
+            [ConsoleColor]::Yellow
+        } else {
+            [ConsoleColor]::Cyan
+        }
 
         if (-not $enabled) {
-            Write-PaddedLine -Text ($line + "   ") -ForegroundColor DarkGray -Width $width
+            Write-PaddedLine -Text $line -ForegroundColor DarkGray -Width $width
         } elseif ($i -eq $SelectedIndex) {
-            Write-SelectedLine -Text ($line + " >>") -Width $width
+            Write-SelectedLine -Text $line -Width $width -BackgroundColor $selectedBackground
         } else {
-            Write-PaddedLine -Text ($line + "   ") -ForegroundColor Gray -Width $width
+            Write-PaddedLine -Text $line -ForegroundColor $lineColor -Width $width
         }
     }
 
@@ -480,11 +566,8 @@ function Show-Menu {
     $firstRender = $true
     $status = Get-StatusText -Ui $Ui
     $updateAvailable = Get-UpdateAvailability -Status $status -Ui $Ui
+    Set-UpdateMenuStatus -Status $status -Ui $Ui -UpdateAvailable $updateAvailable
     $menuOptions = @($Options[0], $Options[1], $Options[2], $Options[3])
-
-    if ($updateAvailable) {
-        $menuOptions[1] = $menuOptions[1] + $Ui.UpdateAvailableSuffix
-    }
 
     $enabledStates = Get-MenuEnabledStates -Status $status
     $index = 0
@@ -597,36 +680,50 @@ function Open-InstallFolder {
 }
 
 $ui = Get-UiText
-$selection = $null
 $autoAction = $env:AUTOVENCORD_MENU_ACTION
+$options = @($ui.Install, $ui.Update, $ui.Uninstall, $ui.OpenFolder)
 
-if ($autoAction) {
-    switch ($autoAction.ToLowerInvariant()) {
-        "install" { $selection = 0 }
-        "update" { $selection = 1 }
-        "uninstall" { $selection = 2 }
-        "open" { $selection = 3 }
+while ($true) {
+    $selection = $null
+
+    if ($autoAction) {
+        switch ($autoAction.ToLowerInvariant()) {
+            "install" { $selection = 0 }
+            "update" { $selection = 1 }
+            "uninstall" { $selection = 2 }
+            "open" { $selection = 3 }
+        }
     }
-}
 
-if ($null -eq $selection) {
-    $selection = Show-Menu -Ui $ui -Options @($ui.Install, $ui.Update, $ui.Uninstall, $ui.OpenFolder)
-}
-
-if (-not $autoAction -and $selection -eq 0) {
-    if (-not (Confirm-InstallSelection -Ui $ui)) {
-        $selection = Show-Menu -Ui $ui -Options @($ui.Install, $ui.Update, $ui.Uninstall, $ui.OpenFolder)
+    if ($null -eq $selection) {
+        $selection = Show-Menu -Ui $ui -Options $options
     }
-}
 
-Clear-Host
+    if (-not $autoAction -and $selection -eq 0) {
+        if (-not (Confirm-InstallSelection -Ui $ui)) {
+            continue
+        }
+    }
 
-if ($selection -eq 0) {
-    Invoke-Install -Ui $ui
-} elseif ($selection -eq 1) {
-    Invoke-Update -Ui $ui
-} elseif ($selection -eq 2) {
-    Invoke-Uninstall -Ui $ui
-} else {
-    Open-InstallFolder
+    if ($selection -eq 3) {
+        Open-InstallFolder
+
+        if ($autoAction) {
+            break
+        }
+
+        continue
+    }
+
+    Clear-Host
+
+    if ($selection -eq 0) {
+        Invoke-Install -Ui $ui
+    } elseif ($selection -eq 1) {
+        Invoke-Update -Ui $ui
+    } elseif ($selection -eq 2) {
+        Invoke-Uninstall -Ui $ui
+    }
+
+    break
 }
