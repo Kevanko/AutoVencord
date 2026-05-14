@@ -189,12 +189,42 @@ function Download-File($url, $outFile) {
     $client.DownloadFile($url, $outFile)
 }
 
+function Invoke-SchtasksSafe {
+    param(
+        [string[]]$Arguments,
+        [switch]$IgnoreExitCode
+    )
+
+    $originalPreferenceExists = Test-Path variable:PSNativeCommandUseErrorActionPreference
+    if ($originalPreferenceExists) {
+        $originalPreference = $PSNativeCommandUseErrorActionPreference
+    }
+
+    try {
+        if ($originalPreferenceExists) {
+            $PSNativeCommandUseErrorActionPreference = $false
+        }
+
+        $output = & schtasks.exe @Arguments 2>&1
+        $exitCode = $LASTEXITCODE
+
+        return [pscustomobject]@{
+            Output = @($output)
+            ExitCode = $exitCode
+        }
+    } finally {
+        if ($originalPreferenceExists) {
+            $PSNativeCommandUseErrorActionPreference = $originalPreference
+        }
+    }
+}
+
 function Stop-ExistingTask {
     if (Get-Command Stop-ScheduledTask -ErrorAction SilentlyContinue) {
         Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
     }
 
-    & schtasks.exe /End /TN $taskName 2>$null | Out-Null
+    $null = Invoke-SchtasksSafe -Arguments @("/End", "/TN", $taskName) -IgnoreExitCode
 }
 
 function Install-Task {
@@ -220,9 +250,17 @@ function Install-Task {
         return
     }
 
-    & schtasks.exe /Delete /TN $TaskName /F 2>$null | Out-Null
-    & schtasks.exe /Create /F /SC ONLOGON /TN $TaskName /TR "powershell.exe $commandArgument" | Out-Null
-    & schtasks.exe /Run /TN $TaskName | Out-Null
+    $null = Invoke-SchtasksSafe -Arguments @("/Delete", "/TN", $TaskName, "/F") -IgnoreExitCode
+
+    $createResult = Invoke-SchtasksSafe -Arguments @("/Create", "/F", "/SC", "ONLOGON", "/TN", $TaskName, "/TR", "powershell.exe $commandArgument")
+    if ($createResult.ExitCode -ne 0) {
+        throw "schtasks /Create failed with exit code $($createResult.ExitCode): $($createResult.Output -join ' ')"
+    }
+
+    $runResult = Invoke-SchtasksSafe -Arguments @("/Run", "/TN", $TaskName)
+    if ($runResult.ExitCode -ne 0) {
+        throw "schtasks /Run failed with exit code $($runResult.ExitCode): $($runResult.Output -join ' ')"
+    }
 }
 
 function Get-DiscordAppVersion($directoryName) {
