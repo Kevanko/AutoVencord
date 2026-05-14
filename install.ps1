@@ -179,6 +179,10 @@ function Get-UiText {
             ConfirmInstallTitle = Join-CodePoints @(1042,1099,1073,1088,1072,1085,1072,32,1091,1089,1090,1072,1085,1086,1074,1082,1072,46)
             ConfirmInstallEnter = Join-CodePoints @(1053,1072,1078,1084,1080,32,69,110,116,101,114,32,1077,1097,1077,32,1088,1072,1079,32,1076,1083,1103,32,1087,1086,1076,1090,1074,1077,1088,1078,1076,1077,1085,1080,1103,46)
             ConfirmInstallEsc = Join-CodePoints @(1053,1072,1078,1084,1080,32,69,115,99,44,32,1095,1090,1086,1073,1099,32,1074,1077,1088,1085,1091,1090,1100,1089,1103,32,1085,1072,1079,1072,1076,46)
+            InstallDone = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1083,1077,1085,1086,32,1091,1089,1087,1077,1096,1085,1086,46)
+            UpdateDone = Join-CodePoints @(1054,1073,1085,1086,1074,1083,1077,1085,1086,32,1091,1089,1087,1077,1096,1085,1086,46)
+            UninstallDone = Join-CodePoints @(1059,1076,1072,1083,1077,1085,1086,32,1091,1089,1087,1077,1096,1085,1086,46)
+            ResultHint = Join-CodePoints @(1053,1072,1078,1084,1080,1090,1077,32,69,110,116,101,114,44,32,1095,1090,1086,1073,1099,32,1074,1077,1088,1085,1091,1090,1100,1089,1103,32,1074,32,1084,1077,1085,1102,46,32,69,115,99,32,45,32,1074,1099,1081,1090,1080,46)
             UpdateAvailableSuffix = " *"
             UpdateStatusLabel = Join-CodePoints @(1054,1073,1085,1086,1074,1083,1077,1085,1080,1077)
             UpdateAvailable = Join-CodePoints @(1044,1086,1089,1090,1091,1087,1085,1086)
@@ -215,6 +219,10 @@ function Get-UiText {
         ConfirmInstallTitle = "Install selected."
         ConfirmInstallEnter = "Press Enter again to confirm installation."
         ConfirmInstallEsc = "Press Esc to go back."
+        InstallDone = "Installed successfully."
+        UpdateDone = "Updated successfully."
+        UninstallDone = "Uninstalled successfully."
+        ResultHint = "Press Enter to return to menu. Esc exits."
         UpdateAvailableSuffix = " *"
         UpdateStatusLabel = "Update"
         UpdateAvailable = "Available"
@@ -417,6 +425,37 @@ function Get-MenuEnabledStates {
     )
 }
 
+function Resolve-MenuIndex {
+    param(
+        [int]$InitialIndex,
+        [bool[]]$EnabledStates
+    )
+
+    if (-not $EnabledStates -or $EnabledStates.Length -eq 0) {
+        return 0
+    }
+
+    $index = [Math]::Min([Math]::Max($InitialIndex, 0), $EnabledStates.Length - 1)
+
+    if ($EnabledStates[$index]) {
+        return $index
+    }
+
+    for ($offset = 1; $offset -lt $EnabledStates.Length; $offset++) {
+        $downIndex = $index + $offset
+        if ($downIndex -lt $EnabledStates.Length -and $EnabledStates[$downIndex]) {
+            return $downIndex
+        }
+
+        $upIndex = $index - $offset
+        if ($upIndex -ge 0 -and $EnabledStates[$upIndex]) {
+            return $upIndex
+        }
+    }
+
+    return 0
+}
+
 function Set-UpdateMenuStatus {
     param(
         [pscustomobject]$Status,
@@ -459,6 +498,48 @@ function Get-UpdateColor {
     }
 
     return [ConsoleColor]::DarkGray
+}
+
+function Get-MenuItemColor {
+    param(
+        [int]$Index,
+        [pscustomobject]$Status
+    )
+
+    if ($Index -eq 0) {
+        return [ConsoleColor]::Green
+    }
+
+    if ($Index -eq 1) {
+        return Get-UpdateColor -Status $Status
+    }
+
+    if ($Index -eq 2) {
+        return [ConsoleColor]::Red
+    }
+
+    return [ConsoleColor]::Gray
+}
+
+function Get-MenuSelectionBackground {
+    param(
+        [int]$Index,
+        [pscustomobject]$Status
+    )
+
+    if ($Index -eq 0) {
+        return [ConsoleColor]::Green
+    }
+
+    if ($Index -eq 1) {
+        return Get-UpdateColor -Status $Status
+    }
+
+    if ($Index -eq 2) {
+        return [ConsoleColor]::Red
+    }
+
+    return [ConsoleColor]::Cyan
 }
 
 function Clear-PendingConsoleInput {
@@ -533,19 +614,14 @@ function Render-Menu {
             $line = $left.PadRight($contentWidth) + $marker
         }
 
-        $lineColor = if ($i -eq 1) { Get-UpdateColor -Status $Status } else { [ConsoleColor]::Gray }
-        $selectedBackground = if ($i -eq 1 -and $Status.UpdateState -eq "Available") {
-            [ConsoleColor]::Yellow
-        } elseif ($i -eq 1 -and $Status.UpdateState -eq "Current") {
-            [ConsoleColor]::Green
-        } else {
-            [ConsoleColor]::Cyan
-        }
+        $lineColor = Get-MenuItemColor -Index $i -Status $Status
+        $selectedBackground = Get-MenuSelectionBackground -Index $i -Status $Status
+        $selectedForeground = if ($selectedBackground -eq [ConsoleColor]::Red) { [ConsoleColor]::White } else { [ConsoleColor]::Black }
 
         if (-not $enabled) {
             Write-PaddedLine -Text $line -ForegroundColor DarkGray -Width $width
         } elseif ($i -eq $SelectedIndex) {
-            Write-SelectedLine -Text $line -Width $width -BackgroundColor $selectedBackground
+            Write-SelectedLine -Text $line -Width $width -ForegroundColor $selectedForeground -BackgroundColor $selectedBackground
         } else {
             Write-PaddedLine -Text $line -ForegroundColor $lineColor -Width $width
         }
@@ -574,6 +650,43 @@ function Confirm-InstallSelection {
     Write-PaddedLine -Text ("  " + $Ui.ConfirmInstallEnter) -ForegroundColor Gray -Width $width
     Write-PaddedLine -Text ("  " + $Ui.ConfirmInstallEsc) -ForegroundColor DarkGray -Width $width
     Write-PaddedLine -Text "" -Width $width
+
+    while ($true) {
+        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+
+        if ($key.VirtualKeyCode -eq 13) {
+            return $true
+        }
+
+        if ($key.VirtualKeyCode -eq 27) {
+            return $false
+        }
+    }
+}
+
+function Show-ActionResult {
+    param(
+        [hashtable]$Ui,
+        [string]$Message,
+        [ConsoleColor]$Color = [ConsoleColor]::Green
+    )
+
+    $rawUi = $Host.UI.RawUI
+    $width = [Math]::Max(62, $rawUi.WindowSize.Width - 1)
+
+    Clear-Host
+    $rawUi.CursorPosition = New-Object System.Management.Automation.Host.Coordinates 0, 0
+
+    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
+    Write-PaddedLine -Text ("{0}" -f $Ui.BannerTitle).PadLeft(([Math]::Floor(($width + $Ui.BannerTitle.Length) / 2))) -ForegroundColor Cyan -Width $width
+    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
+    Write-PaddedLine -Text "" -Width $width
+    Write-PaddedLine -Text ("  " + $Message) -ForegroundColor $Color -Width $width
+    Write-PaddedLine -Text ("  " + $Ui.ResultHint) -ForegroundColor DarkGray -Width $width
+    Write-PaddedLine -Text "" -Width $width
+
+    Start-Sleep -Milliseconds 150
+    Clear-PendingConsoleInput
 
     while ($true) {
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
@@ -633,7 +746,8 @@ function Invoke-SetupScript {
 function Show-Menu {
     param(
         [hashtable]$Ui,
-        [string[]]$Options
+        [string[]]$Options,
+        [int]$InitialIndex = 0
     )
 
     $firstRender = $true
@@ -643,14 +757,7 @@ function Show-Menu {
     $menuOptions = @($Options[0], $Options[1], $Options[2], $Options[3])
 
     $enabledStates = Get-MenuEnabledStates -Status $status
-    $index = 0
-
-    for ($i = 0; $i -lt $enabledStates.Length; $i++) {
-        if ($enabledStates[$i]) {
-            $index = $i
-            break
-        }
-    }
+    $index = Resolve-MenuIndex -InitialIndex $InitialIndex -EnabledStates $enabledStates
 
     try {
         $Host.UI.RawUI.WindowTitle = $windowTitle
@@ -755,6 +862,7 @@ function Open-InstallFolder {
 $ui = Get-UiText
 $autoAction = $env:AUTOVENCORD_MENU_ACTION
 $options = @($ui.Install, $ui.Update, $ui.Uninstall, $ui.OpenFolder)
+$selectedIndex = 0
 
 while ($true) {
     $selection = $null
@@ -769,7 +877,8 @@ while ($true) {
     }
 
     if ($null -eq $selection) {
-        $selection = Show-Menu -Ui $ui -Options $options
+        $selection = Show-Menu -Ui $ui -Options $options -InitialIndex $selectedIndex
+        $selectedIndex = $selection
     }
 
     if (-not $autoAction -and $selection -eq 0) {
@@ -792,15 +901,27 @@ while ($true) {
 
     if ($selection -eq 0) {
         Invoke-Install -Ui $ui
+        if (-not $autoAction) {
+            if (Show-ActionResult -Ui $ui -Message $ui.InstallDone -Color Green) {
+                continue
+            }
+        }
     } elseif ($selection -eq 1) {
         $updateApplied = Invoke-Update -Ui $ui
 
-        if (-not $autoAction -and -not $updateApplied) {
-            Start-Sleep -Milliseconds 1200
-            continue
+        if (-not $autoAction) {
+            $updateMessage = if ($updateApplied) { $ui.UpdateDone } else { $ui.AlreadyLatest }
+            if (Show-ActionResult -Ui $ui -Message $updateMessage -Color Green) {
+                continue
+            }
         }
     } elseif ($selection -eq 2) {
         Invoke-Uninstall -Ui $ui
+        if (-not $autoAction) {
+            if (Show-ActionResult -Ui $ui -Message $ui.UninstallDone -Color Green) {
+                continue
+            }
+        }
     }
 
     break
