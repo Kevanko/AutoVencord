@@ -23,16 +23,11 @@ The watchdog:
 
 ### Interface
 
-The PowerShell bootstrap now tries to launch a richer full-screen TUI built with `Terminal.Gui`:
+The PowerShell bootstrap uses a simple built-in console menu:
 
-- mouse support
-- keyboard navigation
-- full console border
-- adaptive layout
-- white and blue color palette
-- install status and watchdog status at the top
-
-If the TUI cannot start, the script falls back to the basic PowerShell menu automatically.
+- arrow-key navigation
+- current install and watchdog status
+- automatic Russian or English selection from the system language
 
 ### Why this approach
 
@@ -47,7 +42,7 @@ The scripts are written to be friendly to older Windows setups by:
 
 - using plain batch and Windows PowerShell
 - falling back to `schtasks.exe` when newer Task Scheduler PowerShell cmdlets are unavailable
-- keeping the classic PowerShell menu as a fallback if the richer TUI cannot be built
+- using the classic PowerShell menu directly without extra UI runtimes
 
 This project is intended for Windows versions that can still run the target Discord and Vencord combination on the machine. Script compatibility is broader than product support, so actual runtime support still depends on the Discord and Vencord versions available for that OS.
 
@@ -130,16 +125,11 @@ Watcher:
 
 ### Интерфейс
 
-PowerShell bootstrap теперь сначала пытается запустить более свежий полноэкранный TUI на `Terminal.Gui`:
+PowerShell bootstrap использует простое встроенное консольное меню:
 
-- поддержка мышки
-- навигация с клавиатуры
-- рамка на всю консоль
-- адаптивная раскладка
-- единая бело-голубая палитра
-- статус установки и watchdog сверху
-
-Если TUI не удалось запустить, скрипт автоматически откатывается на базовое PowerShell-меню.
+- навигация стрелками
+- текущий статус установки и watchdog
+- автоматический выбор русского или английского языка по системе
 
 ### Почему так
 
@@ -154,7 +144,7 @@ PowerShell bootstrap теперь сначала пытается запусти
 
 - обычный batch и Windows PowerShell
 - fallback на `schtasks.exe`, если нет новых PowerShell cmdlet для Планировщика
-- классическое PowerShell-меню остается запасным вариантом, если новый TUI не удалось собрать
+- меню работает без дополнительных UI runtime-зависимостей
 
 Проект рассчитан на те версии Windows, где в принципе работает нужная связка Discord и Vencord. Совместимость скриптов шире, чем официальная поддержка самих продуктов, поэтому фактическая работа все равно зависит от доступных версий Discord и Vencord для конкретной ОС.
 
