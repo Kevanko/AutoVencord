@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $installerUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/AutoVencord-OneClick.bat"
+$installerFreshMarker = "function Invoke-SchtasksSafe {"
 $tempDir = Join-Path $env:TEMP "AutoVencord"
 $batPath = Join-Path $tempDir "AutoVencord-OneClick.bat"
 $installedBaseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
@@ -27,6 +28,32 @@ function Download-File($url, $outFile) {
 
     $client = New-Object System.Net.WebClient
     $client.DownloadFile($url, $outFile)
+}
+
+function Get-CacheBustedUrl {
+    param(
+        [string]$Url
+    )
+
+    $separator = if ($Url -like "*?*") { "&" } else { "?" }
+    return "{0}{1}ts={2}" -f $Url, $separator, ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
+}
+
+function Test-InstallerPayload {
+    param(
+        [string]$Path
+    )
+
+    if (-not (Test-Path $Path)) {
+        return $false
+    }
+
+    try {
+        $content = Get-Content -LiteralPath $Path -Raw
+        return $content.Contains($installerFreshMarker)
+    } catch {
+        return $false
+    }
 }
 
 function Join-CodePoints {
@@ -247,7 +274,16 @@ function Get-UpdateAvailability {
     try {
         $updateCheckPath = Join-Path $tempDir "AutoVencord-update-check.bat"
         New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
-        Download-File $installerUrl $updateCheckPath
+        Download-File (Get-CacheBustedUrl -Url $installerUrl) $updateCheckPath
+
+        if (-not (Test-InstallerPayload -Path $updateCheckPath)) {
+            Start-Sleep -Milliseconds 300
+            Download-File (Get-CacheBustedUrl -Url $installerUrl) $updateCheckPath
+        }
+
+        if (-not (Test-InstallerPayload -Path $updateCheckPath)) {
+            return $false
+        }
 
         if (-not (Test-Path $installedInstallerPath)) {
             return $true
@@ -380,7 +416,17 @@ function Download-LatestInstaller {
 
     New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
     Write-Host $Ui.Downloading -ForegroundColor Cyan
-    Download-File $installerUrl $batPath
+    Download-File (Get-CacheBustedUrl -Url $installerUrl) $batPath
+
+    if (-not (Test-InstallerPayload -Path $batPath)) {
+        Start-Sleep -Milliseconds 300
+        Download-File (Get-CacheBustedUrl -Url $installerUrl) $batPath
+    }
+
+    if (-not (Test-InstallerPayload -Path $batPath)) {
+        throw "Downloaded installer payload is stale or invalid."
+    }
+
     return $batPath
 }
 

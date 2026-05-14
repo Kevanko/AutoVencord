@@ -46,6 +46,7 @@ param(
 
 $ErrorActionPreference = "SilentlyContinue"
 $latestUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/AutoVencord-OneClick.bat"
+$freshMarker = "function Invoke-SchtasksSafe {"
 
 function Enable-Tls12IfAvailable {
     try {
@@ -63,6 +64,24 @@ function Download-File($url, $outFile) {
 
     $client = New-Object System.Net.WebClient
     $client.DownloadFile($url, $outFile)
+}
+
+function Get-CacheBustedUrl($url) {
+    $separator = if ($url -like "*?*") { "&" } else { "?" }
+    return "{0}{1}ts={2}" -f $url, $separator, ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
+}
+
+function Test-FreshPayload($path) {
+    if (-not (Test-Path $path)) {
+        return $false
+    }
+
+    try {
+        $content = Get-Content -LiteralPath $path -Raw
+        return $content.Contains($freshMarker)
+    } catch {
+        return $false
+    }
 }
 
 function Test-SameFile($left, $right) {
@@ -96,7 +115,16 @@ try {
     }
 
     $tempBat = Join-Path $env:TEMP ("AutoVencord-OneClick-" + [guid]::NewGuid().ToString() + ".bat")
-    Download-File $latestUrl $tempBat
+    Download-File (Get-CacheBustedUrl $latestUrl) $tempBat
+
+    if (-not (Test-FreshPayload $tempBat)) {
+        Start-Sleep -Milliseconds 300
+        Download-File (Get-CacheBustedUrl $latestUrl) $tempBat
+    }
+
+    if (-not (Test-FreshPayload $tempBat)) {
+        throw "Downloaded AutoVencord batch is stale or invalid."
+    }
 
     if (Test-SameFile $SelfPath $tempBat) {
         Remove-Item $tempBat -Force -ErrorAction SilentlyContinue
