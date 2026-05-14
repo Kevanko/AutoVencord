@@ -239,6 +239,34 @@ function Download-File($url, $outFile) {
     $client.DownloadFile($url, $outFile)
 }
 
+function Test-WindowsExecutable {
+    param(
+        [string]$Path
+    )
+
+    if (-not (Test-Path $Path)) {
+        return $false
+    }
+
+    try {
+        $item = Get-Item -LiteralPath $Path
+        if ($item.Length -lt 102400) {
+            return $false
+        }
+
+        $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+        try {
+            $first = $stream.ReadByte()
+            $second = $stream.ReadByte()
+            return ($first -eq 0x4D -and $second -eq 0x5A)
+        } finally {
+            $stream.Close()
+        }
+    } catch {
+        return $false
+    }
+}
+
 function Invoke-SchtasksSafe {
     param(
         [string[]]$Arguments,
@@ -513,6 +541,10 @@ if (Test-Path $installerSetupCopyPath) {
 
 Write-Host "Downloading official Vencord installer..."
 Download-File $downloadUrl $installerPath
+if (-not (Test-WindowsExecutable -Path $installerPath)) {
+    throw "Downloaded Vencord installer is missing, incomplete, or not a Windows executable."
+}
+
 Write-SetupLog "Installer downloaded"
 
 $watchdogContent = @'
