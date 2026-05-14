@@ -58,8 +58,9 @@ The PowerShell bootstrap auto-detects the system UI language and opens:
 
 - `Install`
 - `Update`
-- `Uninstall`
 - `Open Folder`
+- `Uninstall`
+- `Exit`
 
 Manual BAT install:
 
@@ -161,8 +162,9 @@ PowerShell bootstrap автоматически определяет язык с
 
 - `Install`
 - `Update`
-- `Uninstall`
 - `Open Folder`
+- `Uninstall`
+- `Exit`
 
 Ручная установка через BAT:
 
