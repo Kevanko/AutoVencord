@@ -48,6 +48,13 @@ PowerShell one-command install:
 irm https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1 | iex
 ```
 
+The PowerShell bootstrap opens a small menu with arrow-key navigation:
+
+- `Install AutoVencord`
+- `Update AutoVencord`
+- `Uninstall AutoVencord`
+- `Open AutoVencord Folder`
+
 Manual BAT install:
 
 1. Download [`AutoVencord-OneClick.bat`](./AutoVencord-OneClick.bat).
@@ -136,6 +143,13 @@ One-click BAT при запуске сам проверяет GitHub на нал
 ```powershell
 irm https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1 | iex
 ```
+
+PowerShell bootstrap открывает маленькое меню с выбором стрелками:
+
+- `Install AutoVencord`
+- `Update AutoVencord`
+- `Uninstall AutoVencord`
+- `Open AutoVencord Folder`
 
 Ручная установка через BAT:
 
