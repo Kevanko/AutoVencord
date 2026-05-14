@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" fill="none">
+  <rect width="1280" height="640" rx="32" fill="#0B1020"/>
+  <rect x="32" y="32" width="1216" height="576" rx="28" fill="url(#bg)"/>
+  <circle cx="1035" cy="164" r="136" fill="#6D5EF5" fill-opacity="0.18"/>
+  <circle cx="246" cy="492" r="172" fill="#38D39F" fill-opacity="0.12"/>
+  <rect x="92" y="102" width="272" height="52" rx="26" fill="#171E35"/>
+  <text x="122" y="136" fill="#9CB0FF" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700">Windows + Discord + Vencord</text>
+  <text x="92" y="236" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="70" font-weight="800">AutoVencord</text>
+  <text x="92" y="304" fill="#C8D0EC" font-family="Segoe UI, Arial, sans-serif" font-size="32" font-weight="500">Automatic Vencord re-patching after Discord updates</text>
+  <text x="92" y="356" fill="#8EA1D8" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="500">One-click installer • FileSystemWatcher • Task Scheduler • Log rotation</text>
+  <rect x="92" y="430" width="340" height="84" rx="20" fill="#121A2F" stroke="#2A355F"/>
+  <text x="124" y="475" fill="#86F7C8" font-family="Consolas, monospace" font-size="26">AutoVencord-OneClick.bat</text>
+  <text x="124" y="505" fill="#9AB0E8" font-family="Segoe UI, Arial, sans-serif" font-size="18">Single file setup for end users</text>
+  <rect x="762" y="142" width="368" height="320" rx="26" fill="#101729" stroke="#303E72"/>
+  <rect x="796" y="184" width="300" height="54" rx="14" fill="#182241"/>
+  <text x="824" y="218" fill="#DCE4FF" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700">AutoVencord Watchdog</text>
+  <rect x="796" y="264" width="300" height="44" rx="12" fill="#151D34"/>
+  <rect x="796" y="324" width="300" height="44" rx="12" fill="#151D34"/>
+  <rect x="796" y="384" width="300" height="44" rx="12" fill="#151D34"/>
+  <text x="822" y="292" fill="#AFC0EF" font-family="Segoe UI, Arial, sans-serif" font-size="20">Detect Discord app-* changes</text>
+  <text x="822" y="352" fill="#AFC0EF" font-family="Segoe UI, Arial, sans-serif" font-size="20">Patch only when needed</text>
+  <text x="822" y="412" fill="#AFC0EF" font-family="Segoe UI, Arial, sans-serif" font-size="20">Write logs and rotate safely</text>
+  <defs>
+    <linearGradient id="bg" x1="72" y1="45" x2="1201" y2="611" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#131B32"/>
+      <stop offset="1" stop-color="#0B1226"/>
+    </linearGradient>
+  </defs>
+</svg>

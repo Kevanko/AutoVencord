@@ -1,0 +1,6 @@
+*.log
+*.tmp
+*.bak
+VencordInstallerCli.exe
+desktop.ini
+Thumbs.db
