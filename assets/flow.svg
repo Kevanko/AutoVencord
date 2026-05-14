@@ -1,23 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420">
   <rect width="1200" height="420" rx="24" fill="#0D1327"/>
-  <rect x="50" y="100" width="220" height="120" rx="20" fill="#192240" stroke="#34457C"/>
-  <rect x="330" y="100" width="220" height="120" rx="20" fill="#192240" stroke="#34457C"/>
-  <rect x="610" y="100" width="220" height="120" rx="20" fill="#192240" stroke="#34457C"/>
-  <rect x="890" y="100" width="260" height="120" rx="20" fill="#192240" stroke="#34457C"/>
-  <text x="87" y="150" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">Discord updates</text>
-  <text x="81" y="185" fill="#AFC0EF" font-family="Segoe UI, Arial, sans-serif" font-size="18">Creates or updates app-* folder</text>
-  <text x="381" y="150" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">Watcher wakes</text>
-  <text x="354" y="185" fill="#AFC0EF" font-family="Segoe UI, Arial, sans-serif" font-size="18">FileSystemWatcher receives event</text>
-  <text x="653" y="150" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">Check patch</text>
-  <text x="640" y="185" fill="#AFC0EF" font-family="Segoe UI, Arial, sans-serif" font-size="18">Newest version patched or not</text>
-  <text x="934" y="150" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">Run official CLI</text>
-  <text x="923" y="185" fill="#AFC0EF" font-family="Segoe UI, Arial, sans-serif" font-size="18">Only if patch is missing</text>
-  <path d="M270 160H330" stroke="#75E2B3" stroke-width="8" stroke-linecap="round"/>
-  <path d="M550 160H610" stroke="#75E2B3" stroke-width="8" stroke-linecap="round"/>
-  <path d="M830 160H890" stroke="#75E2B3" stroke-width="8" stroke-linecap="round"/>
-  <path d="M330 160L314 148V172L330 160Z" fill="#75E2B3"/>
-  <path d="M610 160L594 148V172L610 160Z" fill="#75E2B3"/>
-  <path d="M890 160L874 148V172L890 160Z" fill="#75E2B3"/>
-  <rect x="260" y="278" width="680" height="86" rx="18" fill="#111A31" stroke="#2A3968"/>
-  <text x="297" y="329" fill="#9CB0FF" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700">Logs are written to last-action.log and rotated to last-action.previous.log</text>
+  <rect x="50" y="96" width="230" height="126" rx="16" fill="#192240" stroke="#34457C"/>
+  <rect x="330" y="96" width="230" height="126" rx="16" fill="#192240" stroke="#34457C"/>
+  <rect x="610" y="96" width="230" height="126" rx="16" fill="#192240" stroke="#34457C"/>
+  <rect x="890" y="96" width="260" height="126" rx="16" fill="#192240" stroke="#34457C"/>
+  <text x="84" y="148" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="27" font-weight="700">Discord updates</text>
+  <text x="86" y="184" fill="#AFC0EF" font-family="Segoe UI, Arial, sans-serif" font-size="18">Creates app-* folder</text>
+  <text x="382" y="148" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="27" font-weight="700">Watcher wakes</text>
+  <text x="365" y="184" fill="#AFC0EF" font-family="Segoe UI, Arial, sans-serif" font-size="18">Receives file event</text>
+  <text x="656" y="148" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="27" font-weight="700">Check patch</text>
+  <text x="647" y="184" fill="#AFC0EF" font-family="Segoe UI, Arial, sans-serif" font-size="18">Newest app is checked</text>
+  <text x="937" y="148" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="27" font-weight="700">Run official CLI</text>
+  <text x="925" y="184" fill="#AFC0EF" font-family="Segoe UI, Arial, sans-serif" font-size="18">Only when needed</text>
+  <line x1="280" y1="159" x2="330" y2="159" stroke="#75E2B3" stroke-width="8" stroke-linecap="round"/>
+  <line x1="560" y1="159" x2="610" y2="159" stroke="#75E2B3" stroke-width="8" stroke-linecap="round"/>
+  <line x1="840" y1="159" x2="890" y2="159" stroke="#75E2B3" stroke-width="8" stroke-linecap="round"/>
+  <polygon points="330,159 314,148 314,170" fill="#75E2B3"/>
+  <polygon points="610,159 594,148 594,170" fill="#75E2B3"/>
+  <polygon points="890,159 874,148 874,170" fill="#75E2B3"/>
+  <rect x="250" y="278" width="700" height="86" rx="16" fill="#111A31" stroke="#2A3968"/>
+  <text x="310" y="330" fill="#9CB0FF" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700">Logs: last-action.log rotates into last-action.previous.log</text>
 </svg>
