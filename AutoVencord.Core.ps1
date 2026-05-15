@@ -1,4 +1,4 @@
-$script:AutoVencordPayloadVersion = "2026.05.15.5"
+$script:AutoVencordPayloadVersion = "2026.05.15.6"
 $script:AutoVencordExitCodes = @{
     Success = 0
     NetworkFailure = 10
@@ -936,7 +936,16 @@ function Start-AutoVencordWatchdogLoop {
 
             if ($discordState.State -ne "DiscordReady") {
                 Write-AutoVencordLog -Phase "WATCHDOG" -Action "discord-state" -Message $discordState.Message -Fingerprint $discordState.Fingerprint
-                return
+
+                if ($discordState.State -notin @("DiscordUpdating", "DiscordIncomplete")) {
+                    return
+                }
+
+                $discordState = Wait-ForDiscordReady -MaxWaitSeconds $context.ReadyMaxWaitSeconds -LogPhase "WATCHDOG"
+                if ($discordState.State -ne "DiscordReady") {
+                    Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-postpone" -Message $discordState.Message -Fingerprint $discordState.Fingerprint
+                    return
+                }
             }
 
             $patchState = Get-PatchState -AppDir $discordState.Latest
