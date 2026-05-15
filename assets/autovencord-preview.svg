@@ -1,70 +1,83 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
   <title id="title">AutoVencord preview</title>
-  <desc id="desc">AutoVencord automates Vencord repair after Discord updates on Windows.</desc>
+  <desc id="desc">A Vencord-style preview for AutoVencord, a small Windows automation that keeps Vencord patched after Discord updates.</desc>
   <defs>
-    <linearGradient id="page" x1="0" y1="0" x2="1280" y2="640" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#10162E"/>
-      <stop offset="0.55" stop-color="#171B3C"/>
-      <stop offset="1" stop-color="#0B1022"/>
-    </linearGradient>
-    <linearGradient id="vencord" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#8EA1FF"/>
-      <stop offset="1" stop-color="#5B6DFF"/>
-    </linearGradient>
-    <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#8CFFD2"/>
-      <stop offset="1" stop-color="#45D8A7"/>
-    </linearGradient>
-    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="26" result="blur"/>
-      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.43 0 0 0 0 0.50 0 0 0 0 1 0 0 0 .38 0"/>
+    <filter id="sticker" x="-12%" y="-22%" width="124%" height="150%">
+      <feMorphology in="SourceAlpha" operator="dilate" radius="9" result="outline"/>
+      <feFlood flood-color="#fff7fb" result="white"/>
+      <feComposite in="white" in2="outline" operator="in" result="stroke"/>
+      <feDropShadow dx="0" dy="12" stdDeviation="7" flood-color="#000000" flood-opacity="0.28"/>
+      <feMerge>
+        <feMergeNode in="stroke"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="pinkGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="22" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.93 0 0 0 0 0.36 0 0 0 0 0.56 0 0 0 .28 0"/>
       <feBlend in="SourceGraphic"/>
     </filter>
-    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
-      <path d="M44 0H0V44" fill="none" stroke="#FFFFFF" stroke-opacity="0.045" stroke-width="1"/>
-    </pattern>
+    <linearGradient id="pink" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ff9dbc"/>
+      <stop offset="1" stop-color="#e36f9b"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#403a37"/>
+      <stop offset="1" stop-color="#332f2c"/>
+    </linearGradient>
   </defs>
 
-  <rect width="1280" height="640" rx="34" fill="url(#page)"/>
-  <rect width="1280" height="640" rx="34" fill="url(#grid)"/>
-  <circle cx="1090" cy="88" r="238" fill="#5865F2" fill-opacity="0.18" filter="url(#softGlow)"/>
-  <circle cx="158" cy="562" r="188" fill="#45D8A7" fill-opacity="0.12"/>
+  <rect width="1280" height="640" fill="#242423"/>
+  <rect width="1280" height="52" fill="#1b1e1e"/>
+  <text x="82" y="33" fill="#d7c39e" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="800" letter-spacing="1.5">AUTO</text>
+  <text x="132" y="33" fill="#f18cac" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="900" letter-spacing="1.5">VENCORD</text>
+  <text x="1012" y="33" fill="#d7c39e" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="800">Install</text>
+  <text x="1074" y="33" fill="#d7c39e" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="800">Update</text>
+  <text x="1142" y="33" fill="#d7c39e" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="800">GitHub</text>
 
-  <rect x="54" y="52" width="1172" height="536" rx="30" fill="#0C1226" fill-opacity="0.72" stroke="#27335F"/>
-
-  <g transform="translate(92 92)">
-    <rect x="0" y="0" width="274" height="44" rx="22" fill="#171F3B" stroke="#2A3768"/>
-    <circle cx="24" cy="22" r="7" fill="#8CFFD2"/>
-    <text x="44" y="29" fill="#BFC9FF" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">Vencord automation</text>
-
-    <text x="0" y="136" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="76" font-weight="850" letter-spacing="-2">AutoVencord</text>
-    <text x="0" y="188" fill="#DDE5FF" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="650">Keeps Vencord alive after Discord updates</text>
-    <text x="0" y="234" fill="#9BADEB" font-family="Segoe UI, Arial, sans-serif" font-size="21">One PowerShell command. Official Vencord CLI. Event-based watcher.</text>
-
-    <rect x="0" y="296" width="584" height="116" rx="22" fill="#111A33" stroke="#314171"/>
-    <text x="28" y="340" fill="#8CFFD2" font-family="Consolas, Cascadia Mono, monospace" font-size="24">irm raw.githubusercontent.com/.../install.ps1 | iex</text>
-    <text x="28" y="378" fill="#A8B7EF" font-family="Segoe UI, Arial, sans-serif" font-size="18">Install, update, uninstall, logs, and Discord preflight in one menu.</text>
+  <g filter="url(#sticker)">
+    <text x="640" y="179" text-anchor="middle" fill="#f7f3ec" font-family="Trebuchet MS, Segoe UI, Arial, sans-serif" font-size="92" font-weight="900" letter-spacing="-5">Auto</text>
+    <text x="640" y="248" text-anchor="middle" fill="url(#pink)" font-family="Trebuchet MS, Segoe UI, Arial, sans-serif" font-size="96" font-weight="900" letter-spacing="-4">Vencord</text>
+    <path d="M433 229c38 20 83 19 122-2-15 33-49 54-86 54-38 0-70-20-36-52z" fill="#f18cac" opacity=".92"/>
+    <path d="M431 204c-13-22-32-28-52-21 10 11 15 24 15 39 8-8 21-14 37-18z" fill="#f18cac"/>
+    <path d="M516 203c11-23 31-31 52-26-9 12-13 25-11 40-9-8-23-13-41-14z" fill="#f18cac"/>
+    <circle cx="452" cy="229" r="9" fill="#9f4967"/>
+    <circle cx="505" cy="229" r="9" fill="#9f4967"/>
   </g>
 
-  <g transform="translate(760 92)">
-    <rect x="0" y="0" width="360" height="360" rx="42" fill="#11182F" stroke="#37477A" stroke-width="2"/>
-    <rect x="42" y="44" width="276" height="92" rx="26" fill="url(#vencord)"/>
-    <text x="180" y="102" text-anchor="middle" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="38" font-weight="900">Vencord</text>
+  <text x="640" y="325" text-anchor="middle" fill="#b9a88d" font-family="Segoe UI, Arial, sans-serif" font-size="31" font-weight="800">Vencord stays patched after Discord updates</text>
 
-    <path d="M86 194 C118 160, 160 160, 184 194 C208 228, 250 228, 278 194" fill="none" stroke="#8CFFD2" stroke-width="12" stroke-linecap="round"/>
-    <circle cx="86" cy="194" r="12" fill="#8CFFD2"/>
-    <circle cx="184" cy="194" r="12" fill="#8CFFD2"/>
-    <circle cx="278" cy="194" r="12" fill="#8CFFD2"/>
-
-    <rect x="42" y="260" width="276" height="48" rx="14" fill="#17213F"/>
-    <text x="180" y="291" text-anchor="middle" fill="#DDE5FF" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">Patch only when needed</text>
+  <g transform="translate(390 354)">
+    <rect x="0" y="0" width="238" height="54" rx="12" fill="#d987a2"/>
+    <text x="119" y="34" text-anchor="middle" fill="#2b2726" font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="900">Auto repair Vencord</text>
+    <rect x="256" y="0" width="244" height="54" rx="12" fill="none" stroke="#746757" stroke-width="2"/>
+    <text x="378" y="34" text-anchor="middle" fill="#d7c39e" font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="900">One PowerShell command</text>
   </g>
 
-  <g transform="translate(748 482)">
-    <rect x="0" y="0" width="394" height="58" rx="18" fill="#10182E" stroke="#314171"/>
-    <text x="30" y="37" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="19" font-weight="700">Discord app-* update</text>
-    <path d="M216 29H272" stroke="#8CFFD2" stroke-width="5" stroke-linecap="round"/>
-    <path d="M272 29l-14-10v20z" fill="#8CFFD2"/>
-    <text x="298" y="37" fill="#8CFFD2" font-family="Segoe UI, Arial, sans-serif" font-size="19" font-weight="800">repaired</text>
+  <g transform="translate(250 454)">
+    <rect x="0" y="0" width="242" height="92" rx="14" fill="url(#card)"/>
+    <rect x="22" y="18" width="38" height="38" rx="10" fill="#332f2c"/>
+    <text x="41" y="44" text-anchor="middle" font-size="21">💗</text>
+    <text x="74" y="38" fill="#d7c39e" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="850">No more repatch</text>
+    <text x="74" y="64" fill="#a99980" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="650">runs only when needed</text>
   </g>
+
+  <g transform="translate(519 454)">
+    <rect x="0" y="0" width="242" height="92" rx="14" fill="url(#card)"/>
+    <rect x="22" y="18" width="38" height="38" rx="10" fill="#332f2c"/>
+    <text x="41" y="44" text-anchor="middle" font-size="21">🔧</text>
+    <text x="74" y="38" fill="#d7c39e" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="850">Official CLI</text>
+    <text x="74" y="64" fill="#a99980" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="650">uses Vencord installer</text>
+  </g>
+
+  <g transform="translate(788 454)">
+    <rect x="0" y="0" width="242" height="92" rx="14" fill="url(#card)"/>
+    <rect x="22" y="18" width="38" height="38" rx="10" fill="#332f2c"/>
+    <text x="41" y="44" text-anchor="middle" font-size="21">✨</text>
+    <text x="74" y="38" fill="#d7c39e" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="850">Tiny watcher</text>
+    <text x="74" y="64" fill="#a99980" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="650">quiet Windows task</text>
+  </g>
+
+  <text x="28" y="617" fill="#c27f98" font-family="Consolas, Cascadia Mono, monospace" font-size="12" font-weight="700" letter-spacing="4">SOURCE CODE</text>
+  <text x="152" y="617" fill="#8e806b" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="800" letter-spacing="3">NOT AFFILIATED WITH VENCORD OR DISCORD</text>
 </svg>
