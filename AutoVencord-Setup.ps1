@@ -116,7 +116,7 @@ function Initialize-CoreModule {
         return $candidate
     }
 
-    Invoke-BootstrapDownload -Urls (Get-PayloadCandidateUrls -FileName "AutoVencord.Core.ps1") -DestinationPath $bootstrapCorePath -ValidationScript ${function:Test-CorePayload}
+    $null = Invoke-BootstrapDownload -Urls (Get-PayloadCandidateUrls -FileName "AutoVencord.Core.ps1") -DestinationPath $bootstrapCorePath -ValidationScript ${function:Test-CorePayload}
     return $bootstrapCorePath
 }
 
