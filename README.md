@@ -1,6 +1,6 @@
 ﻿# AutoVencord
 
-![AutoVencord preview](./assets/autovencord-preview.svg)
+![AutoVencord preview](./assets/autovencord-hero.svg)
 
 AutoVencord is a small Windows automation for Vencord. It keeps Vencord working after Discord updates by using the official Vencord CLI only when a new Discord `app-*` version needs repair.
 
