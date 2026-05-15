@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.15.1"
+$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.15.2"
 $installerPayloadRef = "main"
 $installerPayloadMarker = "AUTOVENCORD_PAYLOAD_VERSION"
 $windowTitle = "AutoVencord"

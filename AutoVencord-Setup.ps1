@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$payloadVersion = "2026.05.15.1"
+$payloadVersion = "2026.05.15.2"
 $payloadRef = "main"
 $baseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $taskName = "AutoVencord Watchdog"
