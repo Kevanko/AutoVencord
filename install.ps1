@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.15.3"
+$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.15.4"
 $installerPayloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $installerPayloadMarker = "AUTOVENCORD_PAYLOAD_VERSION"
 $windowTitle = "AutoVencord"
@@ -309,10 +309,36 @@ function Get-PayloadDefinition {
     return $script:CachedPayloadDefinition
 }
 
+function Get-LocalPayloadDefinition {
+    if ($script:CachedPayloadDefinition) {
+        return $script:CachedPayloadDefinition
+    }
+
+    $localManifest = Join-Path $scriptRoot "AutoVencord-Payload.json"
+    if (-not (Test-Path -LiteralPath $localManifest)) {
+        return $null
+    }
+
+    $script:CachedPayloadDefinition = Read-JsonFile -Path $localManifest
+    return $script:CachedPayloadDefinition
+}
+
 function Reset-UpdateAvailabilityCache {
     $script:CachedUpdateAvailability = $null
     $script:CachedUpdateAvailabilityVersion = $null
     $script:CachedUpdateAvailabilityInstalledAt = $null
+}
+
+function Convert-PayloadVersion {
+    param(
+        [string]$Value
+    )
+
+    try {
+        return [version]$Value
+    } catch {
+        return [version]"0.0.0.0"
+    }
 }
 
 function Test-SetupPayload {
@@ -480,8 +506,22 @@ function Get-UpdateAvailability {
             return [bool]$script:CachedUpdateAvailability
         }
 
-        $payloadDefinition = Get-PayloadDefinition
-        $script:CachedUpdateAvailability = (-not (Test-InstalledPayloadMatches -PayloadDefinition $payloadDefinition))
+        $currentVersion = Convert-PayloadVersion -Value $AUTOVENCORD_PAYLOAD_VERSION
+        $installedParsedVersion = Convert-PayloadVersion -Value $installedVersion
+
+        if ($currentVersion -gt $installedParsedVersion) {
+            $script:CachedUpdateAvailability = $true
+        } elseif ($currentVersion -lt $installedParsedVersion) {
+            $script:CachedUpdateAvailability = $false
+        } else {
+            $payloadDefinition = Get-LocalPayloadDefinition
+            if ($payloadDefinition) {
+                $script:CachedUpdateAvailability = (-not (Test-InstalledPayloadMatches -PayloadDefinition $payloadDefinition))
+            } else {
+                $script:CachedUpdateAvailability = $false
+            }
+        }
+
         $script:CachedUpdateAvailabilityVersion = $installedVersion
         $script:CachedUpdateAvailabilityInstalledAt = $installedAt
         return [bool]$script:CachedUpdateAvailability
@@ -1116,8 +1156,8 @@ function Invoke-Update {
     )
 
     Assert-DiscordReady -Ui $Ui
-    $currentPayloadDefinition = Get-PayloadDefinition
-    if (Test-InstalledPayloadMatches -PayloadDefinition $currentPayloadDefinition) {
+    $status = Get-StatusText -Ui $Ui
+    if (-not (Get-UpdateAvailability -Status $status)) {
         Reset-UpdateAvailabilityCache
         Write-Host $Ui.AlreadyLatest -ForegroundColor Green
         return $false
