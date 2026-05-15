@@ -1,4 +1,4 @@
-$script:AutoVencordPayloadVersion = "2026.05.15.6"
+$script:AutoVencordPayloadVersion = "2026.05.15.11"
 $script:AutoVencordExitCodes = @{
     Success = 0
     NetworkFailure = 10
@@ -38,6 +38,7 @@ function Set-AutoVencordContext {
         CorePath = Join-Path $resolvedBaseDir "AutoVencord.Core.ps1"
         SetupPath = Join-Path $resolvedBaseDir "AutoVencord-Setup.ps1"
         BatchPath = Join-Path $resolvedBaseDir "AutoVencord-OneClick.bat"
+        PayloadManifestPath = Join-Path $resolvedBaseDir "AutoVencord-Payload.json"
         UninstallPath = Join-Path $resolvedBaseDir "uninstall.bat"
         LogPath = Join-Path $resolvedBaseDir "last-action.log"
         PreviousLogPath = Join-Path $resolvedBaseDir "last-action.previous.log"
@@ -68,6 +69,7 @@ function Get-AutoVencordRuntimeFileNames {
         "AutoVencord.Core.ps1",
         "AutoVencord-Setup.ps1",
         "AutoVencord-OneClick.bat",
+        "AutoVencord-Payload.json",
         "watchdog.ps1",
         "uninstall.bat"
     )
@@ -465,6 +467,89 @@ function Get-LatestDiscordInstall {
     return $latest
 }
 
+function Get-DiscordClientProcesses {
+    param(
+        [string]$DiscordRoot
+    )
+
+    $root = if ([string]::IsNullOrWhiteSpace($DiscordRoot)) {
+        (Get-AutoVencordContext).DiscordRoot
+    } else {
+        $DiscordRoot
+    }
+
+    return @(Get-Process Discord -ErrorAction SilentlyContinue | Where-Object {
+        try {
+            $_.Path -and $_.Path.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)
+        } catch {
+            $false
+        }
+    })
+}
+
+function Test-DiscordClientRunning {
+    param(
+        [string]$DiscordRoot
+    )
+
+    return ((Get-DiscordClientProcesses -DiscordRoot $DiscordRoot).Count -gt 0)
+}
+
+function Start-DiscordClient {
+    param(
+        [string]$DiscordRoot,
+        [string]$LogPhase = "RUNTIME"
+    )
+
+    $context = Get-AutoVencordContext
+    $root = if ([string]::IsNullOrWhiteSpace($DiscordRoot)) { $context.DiscordRoot } else { $DiscordRoot }
+    $updatePath = Join-Path $root "Update.exe"
+
+    try {
+        if (Test-Path -LiteralPath $updatePath) {
+            Start-Process -FilePath $updatePath -ArgumentList @("--processStart", "Discord.exe") | Out-Null
+            Write-AutoVencordLog -Phase $LogPhase -Action "discord-restart" -Message "Discord restart requested through Update.exe."
+            return $true
+        }
+
+        $latest = Get-LatestDiscordInstall
+        if ($latest) {
+            $discordExe = Join-Path $latest.FullName "Discord.exe"
+            if (Test-Path -LiteralPath $discordExe) {
+                Start-Process -FilePath $discordExe | Out-Null
+                Write-AutoVencordLog -Phase $LogPhase -Action "discord-restart" -Message "Discord restart requested through Discord.exe."
+                return $true
+            }
+        }
+    } catch {
+        Write-AutoVencordLog -Phase $LogPhase -Action "discord-restart-failed" -Message $_.Exception.Message
+        return $false
+    }
+
+    Write-AutoVencordLog -Phase $LogPhase -Action "discord-restart-failed" -Message "Discord executable was not found."
+    return $false
+}
+
+function Resume-DiscordAfterPatchIfNeeded {
+    param(
+        [bool]$WasRunning,
+        [string]$DiscordRoot,
+        [string]$LogPhase = "RUNTIME"
+    )
+
+    if (-not $WasRunning) {
+        return
+    }
+
+    Start-Sleep -Seconds 1
+    if (Test-DiscordClientRunning -DiscordRoot $DiscordRoot) {
+        Write-AutoVencordLog -Phase $LogPhase -Action "discord-restart-skip" -Message "Discord is already running after patch."
+        return
+    }
+
+    $null = Start-DiscordClient -DiscordRoot $DiscordRoot -LogPhase $LogPhase
+}
+
 function Test-DiscordUpdaterActive {
     $context = Get-AutoVencordContext
     $processes = Get-Process -ErrorAction SilentlyContinue |
@@ -833,8 +918,10 @@ function Invoke-VencordCliAction {
         $reportedSuccess = ($outputText -match "Success" -or $outputText -match "Successfully unpatched")
     }
 
+    $success = (-not $timedOut -and ($exitCode -eq 0 -or $reportedSuccess))
+
     return [pscustomobject]@{
-        Success = (-not $timedOut -and ($exitCode -eq 0 -or $reportedSuccess))
+        Success = $success
         ExitCode = $exitCode
         TimedOut = $timedOut
         Output = @($output)
@@ -990,9 +1077,11 @@ function Start-AutoVencordWatchdogLoop {
             }
 
             Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-start" -Message "Starting patch for Discord." -Fingerprint $recheckPatch.Fingerprint
+            $restartDiscordAfterPatch = Test-DiscordClientRunning -DiscordRoot $context.DiscordRoot
             $result = Invoke-VencordCliAction -InstallerPath $context.InstallerPath -Action "install" -DiscordRoot $context.DiscordRoot -TimeoutSeconds $context.PatchTimeoutSeconds -LogPhase "WATCHDOG"
             if (-not $result.Success) {
                 Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-failed" -Message "Patch command failed." -Fingerprint $recheckPatch.Fingerprint -ExitCode $result.ExitCode
+                Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot $context.DiscordRoot -LogPhase "WATCHDOG"
                 return
             }
 
@@ -1002,8 +1091,10 @@ function Start-AutoVencordWatchdogLoop {
             if ($verifiedPatchState.State -eq "PatchPresent") {
                 $lastSuccessfulFingerprint = $verifiedPatchState.Fingerprint
                 Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-verified" -Message "Patch verified successfully." -Fingerprint $verifiedPatchState.Fingerprint
+                Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot $context.DiscordRoot -LogPhase "WATCHDOG"
             } else {
                 Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-verify-failed" -Message $verifiedPatchState.Reason -Fingerprint $verifiedPatchState.Fingerprint
+                Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot $context.DiscordRoot -LogPhase "WATCHDOG"
             }
         } finally {
             $script:isChecking = $false

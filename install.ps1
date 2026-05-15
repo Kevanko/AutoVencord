@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.15.6"
+$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.15.11"
 $installerPayloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $installerPayloadMarker = "AUTOVENCORD_PAYLOAD_VERSION"
 $windowTitle = "AutoVencord"
@@ -376,7 +376,6 @@ function Download-LatestInstaller {
 
     $payloadDefinition = Get-PayloadDefinition
     New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
-    Write-Host $Ui.Downloading -ForegroundColor Cyan
 
     $localSetupCandidate = Join-Path $scriptRoot "AutoVencord-Setup.ps1"
     if ($AllowLocalFallback -and (Test-Path -LiteralPath $localSetupCandidate) -and (Test-SetupPayload -Path $localSetupCandidate -PayloadDefinition $payloadDefinition)) {
@@ -386,6 +385,8 @@ function Download-LatestInstaller {
             PayloadDefinition = $payloadDefinition
         }
     }
+
+    Write-Host $Ui.Downloading -ForegroundColor Cyan
 
     $validation = {
         param($Path)
@@ -1120,6 +1121,7 @@ function Invoke-Uninstall {
         $context.InstallerPath,
         $context.BatchPath,
         $context.SetupPath,
+        $context.PayloadManifestPath,
         (Join-Path $context.BaseDir "AutoVencord-Setup.sha256"),
         $context.RuntimeManifestPath,
         $context.UninstallPath,

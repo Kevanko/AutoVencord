@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$payloadVersion = "2026.05.15.6"
+$payloadVersion = "2026.05.15.11"
 $payloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $baseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $taskName = "AutoVencord Watchdog"
@@ -99,11 +99,15 @@ function Get-PayloadCandidateUrls {
 }
 
 function Initialize-CoreModule {
-    $candidateRoots = @($scriptRoot)
+    if ($SourceCorePath -and (Test-Path -LiteralPath $SourceCorePath)) {
+        return $SourceCorePath
+    }
+
+    $candidateRoots = @()
     if ($SourceSetupPath) { $candidateRoots += (Split-Path -Parent $SourceSetupPath) }
-    if ($SourceCorePath) { $candidateRoots += (Split-Path -Parent $SourceCorePath) }
     if ($SourcePayloadManifestPath) { $candidateRoots += (Split-Path -Parent $SourcePayloadManifestPath) }
     if ($SourceBatPath) { $candidateRoots += (Split-Path -Parent $SourceBatPath) }
+    $candidateRoots += $scriptRoot
     $candidateRoots = $candidateRoots | Where-Object { $_ } | Select-Object -Unique
 
     $localCoreCandidates = @(
@@ -248,6 +252,7 @@ del /f /q "%BASE_DIR%AutoVencord.Core.ps1" >nul 2>&1
 del /f /q "%BASE_DIR%VencordInstallerCli.exe" >nul 2>&1
 del /f /q "%BASE_DIR%AutoVencord-OneClick.bat" >nul 2>&1
 del /f /q "%BASE_DIR%AutoVencord-Setup.ps1" >nul 2>&1
+del /f /q "%BASE_DIR%AutoVencord-Payload.json" >nul 2>&1
 del /f /q "%BASE_DIR%AutoVencord-Setup.sha256" >nul 2>&1
 del /f /q "%BASE_DIR%installed-manifest.json" >nul 2>&1
 del /f /q "%BASE_DIR%uninstall.bat" >nul 2>&1
@@ -277,6 +282,7 @@ function Install-RuntimePayload {
         "AutoVencord.Core.ps1" = $context.CorePath
         "AutoVencord-Setup.ps1" = $context.SetupPath
         "AutoVencord-OneClick.bat" = $context.BatchPath
+        "AutoVencord-Payload.json" = $context.PayloadManifestPath
         "watchdog.ps1" = $context.WatchdogPath
     }
 
@@ -334,29 +340,48 @@ try {
 
     $patchExitCode = $exitCodes.Success
     if ($PatchNow) {
-        Get-Process Discord -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        $restartDiscordAfterPatch = Test-DiscordClientRunning -DiscordRoot (Get-AutoVencordContext).DiscordRoot
         $readyState = Wait-ForDiscordReady -MaxWaitSeconds 300 -LogPhase "SETUP"
 
         if ($readyState.State -eq "DiscordReady") {
-            Write-Host "Patching Discord with official Vencord CLI..."
-            Write-AutoVencordLog -Phase "SETUP" -Action "patch-start" -Message "Initial patch started." -Fingerprint $readyState.Fingerprint
-            $patchResult = Invoke-VencordCliAction -InstallerPath (Get-AutoVencordContext).InstallerPath -Action "install" -DiscordRoot (Get-AutoVencordContext).DiscordRoot -TimeoutSeconds 180 -LogPhase "SETUP"
-            if (-not $patchResult.Success) {
-                Write-Warning "Initial patch failed. Watchdog will retry when Discord is ready."
-                Write-AutoVencordLog -Phase "SETUP" -Action "patch-failed" -Message "Initial patch failed." -Fingerprint $readyState.Fingerprint -ExitCode $patchResult.ExitCode
-                $patchExitCode = $exitCodes.PatchFailed
+            $existingPatch = Get-PatchState -AppDir $readyState.Latest
+            if ($existingPatch.State -eq "PatchPresent") {
+                Write-AutoVencordLog -Phase "SETUP" -Action "patch-state" -Message "Discord is already patched." -Fingerprint $existingPatch.Fingerprint
             } else {
-                $verifiedPatch = Get-PatchState -AppDir (Get-DiscordState).Latest
-                if ($verifiedPatch.State -eq "PatchPresent") {
-                    Write-AutoVencordLog -Phase "SETUP" -Action "patch-verified" -Message "Initial patch verified." -Fingerprint $verifiedPatch.Fingerprint
+                Get-Process Discord -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                $readyState = Wait-ForDiscordReady -MaxWaitSeconds 300 -LogPhase "SETUP"
+
+                if ($readyState.State -eq "DiscordReady") {
+                    Write-Host "Patching Discord with official Vencord CLI..."
+                    Write-AutoVencordLog -Phase "SETUP" -Action "patch-start" -Message "Initial patch started." -Fingerprint $readyState.Fingerprint
+                    $patchResult = Invoke-VencordCliAction -InstallerPath (Get-AutoVencordContext).InstallerPath -Action "install" -DiscordRoot (Get-AutoVencordContext).DiscordRoot -TimeoutSeconds 180 -LogPhase "SETUP"
+                    if (-not $patchResult.Success) {
+                        Write-Warning "Initial patch failed. Watchdog will retry when Discord is ready."
+                        Write-AutoVencordLog -Phase "SETUP" -Action "patch-failed" -Message "Initial patch failed." -Fingerprint $readyState.Fingerprint -ExitCode $patchResult.ExitCode
+                        Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot (Get-AutoVencordContext).DiscordRoot -LogPhase "SETUP"
+                        $patchExitCode = $exitCodes.PatchFailed
+                    } else {
+                        $verifiedPatch = Get-PatchState -AppDir (Get-DiscordState).Latest
+                        if ($verifiedPatch.State -eq "PatchPresent") {
+                            Write-AutoVencordLog -Phase "SETUP" -Action "patch-verified" -Message "Initial patch verified." -Fingerprint $verifiedPatch.Fingerprint
+                            Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot (Get-AutoVencordContext).DiscordRoot -LogPhase "SETUP"
+                        } else {
+                            Write-Warning "Initial patch completed, but verification is inconclusive. Watchdog will keep monitoring."
+                            Write-AutoVencordLog -Phase "SETUP" -Action "patch-verify" -Message $verifiedPatch.Reason -Fingerprint $verifiedPatch.Fingerprint
+                            Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot (Get-AutoVencordContext).DiscordRoot -LogPhase "SETUP"
+                        }
+                    }
                 } else {
-                    Write-Warning "Initial patch completed, but verification is inconclusive. Watchdog will keep monitoring."
-                    Write-AutoVencordLog -Phase "SETUP" -Action "patch-verify" -Message $verifiedPatch.Reason -Fingerprint $verifiedPatch.Fingerprint
+                    Write-Warning "Discord looks busy or incomplete. Watchdog will patch it automatically when it is ready."
+                    Write-AutoVencordLog -Phase "SETUP" -Action "patch-postpone" -Message $readyState.Message -Fingerprint $readyState.Fingerprint
+                    Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot (Get-AutoVencordContext).DiscordRoot -LogPhase "SETUP"
+                    $patchExitCode = $exitCodes.DiscordNotReady
                 }
             }
         } else {
             Write-Warning "Discord looks busy or incomplete. Watchdog will patch it automatically when it is ready."
             Write-AutoVencordLog -Phase "SETUP" -Action "patch-postpone" -Message $readyState.Message -Fingerprint $readyState.Fingerprint
+            Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot (Get-AutoVencordContext).DiscordRoot -LogPhase "SETUP"
             $patchExitCode = $exitCodes.DiscordNotReady
         }
 
