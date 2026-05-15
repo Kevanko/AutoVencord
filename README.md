@@ -12,6 +12,8 @@ Run in PowerShell:
 irm https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1 | iex
 ```
 
+Or download and run `AutoVencord-OneClick.bat`. It opens the same menu as the PowerShell command.
+
 The menu opens automatically in Russian or English:
 
 - `Install`
@@ -89,6 +91,8 @@ AutoVencord — маленькая автоматизация для Vencord н�
 ```powershell
 irm https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1 | iex
 ```
+
+Или скачай и запусти `AutoVencord-OneClick.bat`. Он открывает то же меню, что и команда PowerShell.
 
 Меню само выберет русский или английский язык:
 
