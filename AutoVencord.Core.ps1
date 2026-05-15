@@ -1,4 +1,4 @@
-$script:AutoVencordPayloadVersion = "2026.05.15.4"
+$script:AutoVencordPayloadVersion = "2026.05.15.5"
 $script:AutoVencordExitCodes = @{
     Success = 0
     NetworkFailure = 10
@@ -496,7 +496,8 @@ function Test-DiscordUpdaterActive {
 
 function Test-FileStable {
     param(
-        [string]$Path
+        [string]$Path,
+        [switch]$SkipWait
     )
 
     if (-not (Test-Path -LiteralPath $Path)) {
@@ -509,7 +510,9 @@ function Test-FileStable {
             return $false
         }
 
-        Start-Sleep -Seconds 2
+        if (-not $SkipWait) {
+            Start-Sleep -Seconds 2
+        }
 
         $second = Get-Item -LiteralPath $Path -ErrorAction Stop
         if ($first.Length -ne $second.Length -or $first.LastWriteTimeUtc -ne $second.LastWriteTimeUtc) {
@@ -547,6 +550,10 @@ function Get-DiscordFingerprint {
 }
 
 function Get-DiscordState {
+    param(
+        [switch]$SkipStabilityWait
+    )
+
     $context = Get-AutoVencordContext
     if (-not (Test-Path -LiteralPath $context.DiscordRoot)) {
         return [pscustomobject]@{
@@ -590,7 +597,7 @@ function Get-DiscordState {
         }
     }
 
-    if (-not (Test-FileStable -Path $appAsar)) {
+    if (-not (Test-FileStable -Path $appAsar -SkipWait:$SkipStabilityWait)) {
         return [pscustomobject]@{
             State = "DiscordUpdating"
             Message = "Discord files are still changing."
@@ -605,6 +612,35 @@ function Get-DiscordState {
         Latest = $latest
         Fingerprint = $fingerprint
     }
+}
+
+function Read-NativeOutputLines {
+    param(
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return @()
+    }
+
+    try {
+        $utf8Strict = New-Object System.Text.UTF8Encoding $false, $true
+        $text = [System.IO.File]::ReadAllText($Path, $utf8Strict)
+    } catch {
+        try {
+            $text = [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::Default)
+        } catch {
+            return @()
+        }
+    }
+
+    if ([string]::IsNullOrEmpty($text)) {
+        return @()
+    }
+
+    $escape = [string][char]27
+    $text = $text -replace ([regex]::Escape($escape) + "\[[0-?]*[ -/]*[@-~]"), ""
+    return @($text -split "\r?\n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 }
 
 function Wait-ForDiscordReady {
@@ -773,12 +809,12 @@ function Invoke-VencordCliAction {
         $exitCode = 1
     } finally {
         if (Test-Path -LiteralPath $stdoutPath) {
-            $output += Get-Content -LiteralPath $stdoutPath -ErrorAction SilentlyContinue
+            $output += Read-NativeOutputLines -Path $stdoutPath
             Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue
         }
 
         if (Test-Path -LiteralPath $stderrPath) {
-            $output += Get-Content -LiteralPath $stderrPath -ErrorAction SilentlyContinue
+            $output += Read-NativeOutputLines -Path $stderrPath
             Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
         }
     }
@@ -829,8 +865,12 @@ function Write-InstalledPayloadManifest {
 }
 
 function Get-AutoVencordStatus {
+    param(
+        [switch]$Fast
+    )
+
     $context = Get-AutoVencordContext
-    $discord = Get-DiscordState
+    $discord = Get-DiscordState -SkipStabilityWait:$Fast
     $manifest = Get-InstalledPayloadManifest
 
     $runtimeFiles = @($context.CorePath, $context.SetupPath, $context.WatchdogPath, $context.UninstallPath, $context.BatchPath)

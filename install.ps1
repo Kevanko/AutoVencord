@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.15.4"
+$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.15.5"
 $installerPayloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $installerPayloadMarker = "AUTOVENCORD_PAYLOAD_VERSION"
 $windowTitle = "AutoVencord"
@@ -408,7 +408,7 @@ function Get-StatusText {
         [hashtable]$Ui
     )
 
-    $status = Get-AutoVencordStatus
+    $status = Get-AutoVencordStatus -Fast
     $installedValue = if ($status.Installed) { $Ui.Yes } else { $Ui.No }
     $watchdogState = $status.Watchdog
 
@@ -508,19 +508,7 @@ function Get-UpdateAvailability {
 
         $currentVersion = Convert-PayloadVersion -Value $AUTOVENCORD_PAYLOAD_VERSION
         $installedParsedVersion = Convert-PayloadVersion -Value $installedVersion
-
-        if ($currentVersion -gt $installedParsedVersion) {
-            $script:CachedUpdateAvailability = $true
-        } elseif ($currentVersion -lt $installedParsedVersion) {
-            $script:CachedUpdateAvailability = $false
-        } else {
-            $payloadDefinition = Get-LocalPayloadDefinition
-            if ($payloadDefinition) {
-                $script:CachedUpdateAvailability = (-not (Test-InstalledPayloadMatches -PayloadDefinition $payloadDefinition))
-            } else {
-                $script:CachedUpdateAvailability = $false
-            }
-        }
+        $script:CachedUpdateAvailability = ($currentVersion -gt $installedParsedVersion)
 
         $script:CachedUpdateAvailabilityVersion = $installedVersion
         $script:CachedUpdateAvailabilityInstalledAt = $installedAt
@@ -574,17 +562,20 @@ function Set-UpdateMenuStatus {
 
     if ($UpdateAvailable) {
         $script:UpdateStatusText = "{0}: {1}" -f $Ui.UpdateStatusLabel, $Ui.UpdateHintAvailable
+        $script:UpdateStatusColor = [ConsoleColor]::Yellow
         $script:UpdateOptionSuffix = $Ui.UpdateAvailableSuffix
         return
     }
 
     if ($Status.InstalledOk) {
         $script:UpdateStatusText = "{0}: {1}" -f $Ui.UpdateStatusLabel, $Ui.UpdateHintCurrent
+        $script:UpdateStatusColor = [ConsoleColor]::DarkGray
         $script:UpdateOptionSuffix = ""
         return
     }
 
     $script:UpdateStatusText = "{0}: {1}" -f $Ui.UpdateStatusLabel, $Ui.UpdateHintUnavailable
+    $script:UpdateStatusColor = [ConsoleColor]::DarkGray
     $script:UpdateOptionSuffix = ""
 }
 
@@ -660,7 +651,8 @@ function Render-Menu {
     if ($Status.DiscordMessage) {
         Write-PaddedLine -Text $Status.DiscordMessage -ForegroundColor DarkYellow -Width $width
     } else {
-        Write-PaddedLine -Text $script:UpdateStatusText -ForegroundColor DarkGray -Width $width
+        $updateStatusColor = if ($script:UpdateStatusColor) { $script:UpdateStatusColor } else { [ConsoleColor]::DarkGray }
+        Write-PaddedLine -Text $script:UpdateStatusText -ForegroundColor $updateStatusColor -Width $width
     }
 
     Write-PaddedLine -Text "" -Width $width
