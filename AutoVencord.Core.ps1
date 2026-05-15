@@ -1,4 +1,4 @@
-$script:AutoVencordPayloadVersion = "2026.05.15.2"
+$script:AutoVencordPayloadVersion = "2026.05.15.3"
 $script:AutoVencordExitCodes = @{
     Success = 0
     NetworkFailure = 10
@@ -830,7 +830,6 @@ function Write-InstalledPayloadManifest {
 
 function Get-AutoVencordStatus {
     $context = Get-AutoVencordContext
-    $watchdog = Get-WatchdogState
     $discord = Get-DiscordState
     $manifest = Get-InstalledPayloadManifest
 
@@ -838,6 +837,14 @@ function Get-AutoVencordStatus {
     $hasRuntimeFiles = (($runtimeFiles | Where-Object { Test-Path -LiteralPath $_ }).Count -gt 0)
     $hasInstaller = Test-Path -LiteralPath $context.InstallerPath
     $isInstalled = $hasRuntimeFiles -and ($hasInstaller -or $manifest)
+    $watchdog = if ($isInstalled) {
+        Get-WatchdogState
+    } else {
+        [pscustomobject]@{
+            State = "WatchdogMissing"
+            RawState = "NotInstalled"
+        }
+    }
 
     return [pscustomobject]@{
         Installed = [bool]$isInstalled

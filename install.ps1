@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.15.2"
+$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.15.3"
 $installerPayloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $installerPayloadMarker = "AUTOVENCORD_PAYLOAD_VERSION"
 $windowTitle = "AutoVencord"
@@ -10,6 +10,10 @@ $setupPath = Join-Path $tempDir "AutoVencord-Setup.ps1"
 $payloadManifestTempPath = Join-Path $tempDir "AutoVencord-Payload.json"
 $coreTempPath = Join-Path $tempDir "AutoVencord.Core.ps1"
 $installedBaseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
+$script:CachedPayloadDefinition = $null
+$script:CachedUpdateAvailability = $null
+$script:CachedUpdateAvailabilityVersion = $null
+$script:CachedUpdateAvailabilityInstalledAt = $null
 
 function Enable-Tls12IfAvailable {
     try {
@@ -281,9 +285,14 @@ function Get-UiText {
 }
 
 function Get-PayloadDefinition {
+    if ($script:CachedPayloadDefinition) {
+        return $script:CachedPayloadDefinition
+    }
+
     $localManifest = Join-Path $scriptRoot "AutoVencord-Payload.json"
     if (Test-Path -LiteralPath $localManifest) {
-        return (Read-JsonFile -Path $localManifest)
+        $script:CachedPayloadDefinition = Read-JsonFile -Path $localManifest
+        return $script:CachedPayloadDefinition
     }
 
     $download = Invoke-DownloadToFile -Urls (Get-PayloadCandidateUrls -FileName "AutoVencord-Payload.json") -DestinationPath $payloadManifestTempPath -MinBytes 32
@@ -296,7 +305,14 @@ function Get-PayloadDefinition {
         throw "Payload manifest is invalid."
     }
 
-    return $manifest
+    $script:CachedPayloadDefinition = $manifest
+    return $script:CachedPayloadDefinition
+}
+
+function Reset-UpdateAvailabilityCache {
+    $script:CachedUpdateAvailability = $null
+    $script:CachedUpdateAvailabilityVersion = $null
+    $script:CachedUpdateAvailabilityInstalledAt = $null
 }
 
 function Test-SetupPayload {
@@ -451,28 +467,24 @@ function Get-UpdateAvailability {
     }
 
     try {
-        $payloadDefinition = Get-PayloadDefinition
-        $installedManifest = Get-InstalledPayloadManifest
+        $installedManifest = $Status.Manifest
         if (-not $installedManifest) {
             return $false
         }
 
-        if ([string]$installedManifest.version -eq [string]$payloadDefinition.version) {
-            $allKnownMatch = $true
-            foreach ($property in $payloadDefinition.files.PSObject.Properties) {
-                $installedProperty = $installedManifest.files.PSObject.Properties[$property.Name]
-                if ($installedProperty -and ([string]$installedProperty.Value -ne [string]$property.Value)) {
-                    $allKnownMatch = $false
-                    break
-                }
-            }
-
-            if ($allKnownMatch) {
-                return $false
-            }
+        $installedVersion = [string]$installedManifest.version
+        $installedAt = [string]$installedManifest.installedAt
+        if (($script:CachedUpdateAvailability -ne $null) -and
+            $script:CachedUpdateAvailabilityVersion -eq $installedVersion -and
+            $script:CachedUpdateAvailabilityInstalledAt -eq $installedAt) {
+            return [bool]$script:CachedUpdateAvailability
         }
 
-        return (-not (Test-InstalledPayloadMatches -PayloadDefinition $payloadDefinition))
+        $payloadDefinition = Get-PayloadDefinition
+        $script:CachedUpdateAvailability = (-not (Test-InstalledPayloadMatches -PayloadDefinition $payloadDefinition))
+        $script:CachedUpdateAvailabilityVersion = $installedVersion
+        $script:CachedUpdateAvailabilityInstalledAt = $installedAt
+        return [bool]$script:CachedUpdateAvailability
     } catch {
         return $false
     }
@@ -844,6 +856,7 @@ function Invoke-Install {
     Assert-DiscordReady -Ui $Ui
     $downloaded = Download-LatestInstaller -Ui $Ui -AllowLocalFallback
     Invoke-SetupScript -SetupScriptPath $downloaded.SetupPath -PatchNow -Ui $Ui
+    Reset-UpdateAvailabilityCache
 }
 
 function Stop-AutoVencordWatchdogForUninstall {
@@ -1093,6 +1106,8 @@ function Invoke-Uninstall {
             throw "AutoVencord uninstaller could not remove all files."
         }
     }
+
+    Reset-UpdateAvailabilityCache
 }
 
 function Invoke-Update {
@@ -1101,15 +1116,24 @@ function Invoke-Update {
     )
 
     Assert-DiscordReady -Ui $Ui
+    $currentPayloadDefinition = Get-PayloadDefinition
+    if (Test-InstalledPayloadMatches -PayloadDefinition $currentPayloadDefinition) {
+        Reset-UpdateAvailabilityCache
+        Write-Host $Ui.AlreadyLatest -ForegroundColor Green
+        return $false
+    }
+
     Write-Host $Ui.Updating -ForegroundColor Cyan
     $downloaded = Download-LatestInstaller -Ui $Ui -AllowLocalFallback
 
     if (Test-InstalledPayloadMatches -PayloadDefinition $downloaded.PayloadDefinition) {
+        Reset-UpdateAvailabilityCache
         Write-Host $Ui.AlreadyLatest -ForegroundColor Green
         return $false
     }
 
     Invoke-SetupScript -SetupScriptPath $downloaded.SetupPath -PatchNow -Ui $Ui
+    Reset-UpdateAvailabilityCache
     return $true
 }
 
