@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$payloadVersion = "2026.05.15.11"
+$payloadVersion = "2026.05.15.14"
 $payloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $baseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $taskName = "AutoVencord Watchdog"
@@ -363,8 +363,14 @@ try {
                     } else {
                         $verifiedPatch = Get-PatchState -AppDir (Get-DiscordState).Latest
                         if ($verifiedPatch.State -eq "PatchPresent") {
-                            Write-AutoVencordLog -Phase "SETUP" -Action "patch-verified" -Message "Initial patch verified." -Fingerprint $verifiedPatch.Fingerprint
                             Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot (Get-AutoVencordContext).DiscordRoot -LogPhase "SETUP"
+                            $stablePatch = Confirm-PatchRemainsPresent -AppDir (Get-DiscordState).Latest -WatchSeconds 45 -IntervalSeconds 5 -LogPhase "SETUP"
+                            if ($stablePatch.State -eq "PatchPresent") {
+                                Write-AutoVencordLog -Phase "SETUP" -Action "patch-verified" -Message "Initial patch verified." -Fingerprint $stablePatch.Fingerprint
+                            } else {
+                                Write-Warning "Discord changed after patch. Watchdog will retry when Discord is ready."
+                                $patchExitCode = $exitCodes.PatchFailed
+                            }
                         } else {
                             Write-Warning "Initial patch completed, but verification is inconclusive. Watchdog will keep monitoring."
                             Write-AutoVencordLog -Phase "SETUP" -Action "patch-verify" -Message $verifiedPatch.Reason -Fingerprint $verifiedPatch.Fingerprint

@@ -1,4 +1,4 @@
-$script:AutoVencordPayloadVersion = "2026.05.15.11"
+$script:AutoVencordPayloadVersion = "2026.05.15.14"
 $script:AutoVencordExitCodes = @{
     Success = 0
     NetworkFailure = 10
@@ -48,8 +48,10 @@ function Set-AutoVencordContext {
         ReadyRetryDelaySeconds = 10
         ReadyMaxWaitSeconds = 300
         PatchTimeoutSeconds = 180
-        PeriodicCheckSeconds = 1800
+        PeriodicCheckSeconds = 60
         DebounceSeconds = 5
+        PostPatchWatchSeconds = 45
+        PostPatchCheckIntervalSeconds = 5
         WatcherRestartDelaySeconds = 15
     }
 
@@ -755,6 +757,47 @@ function Wait-ForDiscordReady {
     return Get-DiscordState
 }
 
+function Wait-ForDiscordFilesystemQuiet {
+    param(
+        [int]$QuietSeconds = 10,
+        [int]$MaxWaitSeconds = 90,
+        [string]$LogPhase = "RUNTIME"
+    )
+
+    $context = Get-AutoVencordContext
+    $deadline = (Get-Date).AddSeconds($MaxWaitSeconds)
+    $lastFingerprint = $null
+    $stableSince = $null
+
+    while ((Get-Date) -lt $deadline) {
+        $state = Get-DiscordState -SkipStabilityWait
+        $fingerprint = [string]$state.Fingerprint
+
+        if ($state.State -eq "DiscordReady") {
+            if ($fingerprint -eq $lastFingerprint) {
+                if (-not $stableSince) {
+                    $stableSince = Get-Date
+                }
+
+                if ((Get-Date) -ge $stableSince.AddSeconds($QuietSeconds)) {
+                    return (Get-DiscordState)
+                }
+            } else {
+                $lastFingerprint = $fingerprint
+                $stableSince = Get-Date
+            }
+        } else {
+            Write-AutoVencordLog -Phase $LogPhase -Action "wait-quiet" -Message $state.Message -Fingerprint $state.Fingerprint
+            $lastFingerprint = $fingerprint
+            $stableSince = $null
+        }
+
+        Start-Sleep -Seconds 2
+    }
+
+    return (Get-DiscordState)
+}
+
 function Get-AppAsarTextSample {
     param(
         [string]$Path,
@@ -928,6 +971,32 @@ function Invoke-VencordCliAction {
     }
 }
 
+function Confirm-PatchRemainsPresent {
+    param(
+        $AppDir,
+        [int]$WatchSeconds = 45,
+        [int]$IntervalSeconds = 5,
+        [string]$LogPhase = "RUNTIME"
+    )
+
+    $deadline = (Get-Date).AddSeconds($WatchSeconds)
+    $lastPatchState = $null
+
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds $IntervalSeconds
+        $state = Get-DiscordState
+        $patchState = Get-PatchState -AppDir $state.Latest
+        $lastPatchState = $patchState
+
+        if ($patchState.State -ne "PatchPresent") {
+            Write-AutoVencordLog -Phase $LogPhase -Action "patch-lost" -Message $patchState.Reason -Fingerprint $patchState.Fingerprint
+            return $patchState
+        }
+    }
+
+    return $lastPatchState
+}
+
 function Get-InstalledPayloadManifest {
     $context = Get-AutoVencordContext
     return Read-JsonFile -Path $context.RuntimeManifestPath
@@ -1059,7 +1128,7 @@ function Start-AutoVencordWatchdogLoop {
             $lastAttemptFingerprint = $patchState.Fingerprint
             $lastAttemptAt = Get-Date
 
-            $readyState = Wait-ForDiscordReady -MaxWaitSeconds $context.ReadyMaxWaitSeconds -LogPhase "WATCHDOG"
+            $readyState = Wait-ForDiscordFilesystemQuiet -QuietSeconds 10 -MaxWaitSeconds $context.ReadyMaxWaitSeconds -LogPhase "WATCHDOG"
             if ($readyState.State -ne "DiscordReady") {
                 Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-postpone" -Message $readyState.Message -Fingerprint $readyState.Fingerprint
                 return
@@ -1076,25 +1145,56 @@ function Start-AutoVencordWatchdogLoop {
                 return
             }
 
-            Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-start" -Message "Starting patch for Discord." -Fingerprint $recheckPatch.Fingerprint
-            $restartDiscordAfterPatch = Test-DiscordClientRunning -DiscordRoot $context.DiscordRoot
-            $result = Invoke-VencordCliAction -InstallerPath $context.InstallerPath -Action "install" -DiscordRoot $context.DiscordRoot -TimeoutSeconds $context.PatchTimeoutSeconds -LogPhase "WATCHDOG"
-            if (-not $result.Success) {
-                Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-failed" -Message "Patch command failed." -Fingerprint $recheckPatch.Fingerprint -ExitCode $result.ExitCode
-                Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot $context.DiscordRoot -LogPhase "WATCHDOG"
-                return
-            }
+            for ($patchAttempt = 1; $patchAttempt -le 2; $patchAttempt++) {
+                Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-start" -Message ("Starting patch for Discord. Attempt {0}." -f $patchAttempt) -Fingerprint $recheckPatch.Fingerprint
+                $restartDiscordAfterPatch = Test-DiscordClientRunning -DiscordRoot $context.DiscordRoot
+                $result = Invoke-VencordCliAction -InstallerPath $context.InstallerPath -Action "install" -DiscordRoot $context.DiscordRoot -TimeoutSeconds $context.PatchTimeoutSeconds -LogPhase "WATCHDOG"
+                if (-not $result.Success) {
+                    Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-failed" -Message "Patch command failed." -Fingerprint $recheckPatch.Fingerprint -ExitCode $result.ExitCode
+                    Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot $context.DiscordRoot -LogPhase "WATCHDOG"
+                    return
+                }
 
-            Start-Sleep -Seconds 2
-            $verifiedDiscordState = Get-DiscordState
-            $verifiedPatchState = Get-PatchState -AppDir $verifiedDiscordState.Latest
-            if ($verifiedPatchState.State -eq "PatchPresent") {
-                $lastSuccessfulFingerprint = $verifiedPatchState.Fingerprint
-                Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-verified" -Message "Patch verified successfully." -Fingerprint $verifiedPatchState.Fingerprint
+                Start-Sleep -Seconds 2
+                $verifiedDiscordState = Get-DiscordState
+                $verifiedPatchState = Get-PatchState -AppDir $verifiedDiscordState.Latest
+                if ($verifiedPatchState.State -ne "PatchPresent") {
+                    Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-verify-failed" -Message $verifiedPatchState.Reason -Fingerprint $verifiedPatchState.Fingerprint
+                    Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot $context.DiscordRoot -LogPhase "WATCHDOG"
+                    return
+                }
+
                 Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot $context.DiscordRoot -LogPhase "WATCHDOG"
-            } else {
-                Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-verify-failed" -Message $verifiedPatchState.Reason -Fingerprint $verifiedPatchState.Fingerprint
-                Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot $context.DiscordRoot -LogPhase "WATCHDOG"
+                $stablePatchState = Confirm-PatchRemainsPresent -AppDir $verifiedDiscordState.Latest -WatchSeconds $context.PostPatchWatchSeconds -IntervalSeconds $context.PostPatchCheckIntervalSeconds -LogPhase "WATCHDOG"
+                if ($stablePatchState.State -eq "PatchPresent") {
+                    $lastSuccessfulFingerprint = $stablePatchState.Fingerprint
+                    Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-verified" -Message "Patch verified successfully." -Fingerprint $stablePatchState.Fingerprint
+                    return
+                }
+
+                $lastSuccessfulFingerprint = $null
+                $lastAttemptFingerprint = $null
+                if ($patchAttempt -ge 2) {
+                    return
+                }
+
+                $readyState = Wait-ForDiscordFilesystemQuiet -QuietSeconds 10 -MaxWaitSeconds $context.ReadyMaxWaitSeconds -LogPhase "WATCHDOG"
+                if ($readyState.State -ne "DiscordReady") {
+                    Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-postpone" -Message $readyState.Message -Fingerprint $readyState.Fingerprint
+                    return
+                }
+
+                $recheckPatch = Get-PatchState -AppDir $readyState.Latest
+                if ($recheckPatch.State -eq "PatchPresent") {
+                    $lastSuccessfulFingerprint = $recheckPatch.Fingerprint
+                    Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-verified" -Message "Patch verified successfully." -Fingerprint $recheckPatch.Fingerprint
+                    return
+                }
+
+                if ($recheckPatch.State -eq "PatchUnknown") {
+                    Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-state" -Message $recheckPatch.Reason -Fingerprint $recheckPatch.Fingerprint
+                    return
+                }
             }
         } finally {
             $script:isChecking = $false
