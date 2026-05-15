@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $AUTOVENCORD_PAYLOAD_VERSION = "2026.05.15.2"
-$installerPayloadRef = "main"
+$installerPayloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $installerPayloadMarker = "AUTOVENCORD_PAYLOAD_VERSION"
 $windowTitle = "AutoVencord"
 $scriptRoot = if ($MyInvocation.MyCommand.Path) { Split-Path -Parent $MyInvocation.MyCommand.Path } else { $PWD.Path }

@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $payloadVersion = "2026.05.15.2"
-$payloadRef = "main"
+$payloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $baseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $taskName = "AutoVencord Watchdog"
 $downloadUrl = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli.exe"
