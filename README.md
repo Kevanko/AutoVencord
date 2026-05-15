@@ -9,7 +9,7 @@ AutoVencord is a small Windows automation for Vencord. It keeps Vencord working 
 Run in PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1 | iex
+irm https://get.vencord.ru | iex
 ```
 
 Or download and run `AutoVencord-OneClick.bat`. It opens the same menu as the PowerShell command.
@@ -91,7 +91,7 @@ AutoVencord — маленькая автоматизация для Vencord н�
 Запусти в PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1 | iex
+irm https://get.vencord.ru | iex
 ```
 
 Или скачай и запусти `AutoVencord-OneClick.bat`. Он открывает то же меню, что и команда PowerShell.
