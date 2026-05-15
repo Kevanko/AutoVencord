@@ -36,16 +36,11 @@
   <text x="1142" y="33" fill="#d7c39e" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="800">GitHub</text>
 
   <g filter="url(#sticker)">
-    <text x="640" y="179" text-anchor="middle" fill="#f7f3ec" font-family="Trebuchet MS, Segoe UI, Arial, sans-serif" font-size="92" font-weight="900" letter-spacing="-5">Auto</text>
-    <text x="640" y="248" text-anchor="middle" fill="url(#pink)" font-family="Trebuchet MS, Segoe UI, Arial, sans-serif" font-size="96" font-weight="900" letter-spacing="-4">Vencord</text>
-    <path d="M433 229c38 20 83 19 122-2-15 33-49 54-86 54-38 0-70-20-36-52z" fill="#f18cac" opacity=".92"/>
-    <path d="M431 204c-13-22-32-28-52-21 10 11 15 24 15 39 8-8 21-14 37-18z" fill="#f18cac"/>
-    <path d="M516 203c11-23 31-31 52-26-9 12-13 25-11 40-9-8-23-13-41-14z" fill="#f18cac"/>
-    <circle cx="452" cy="229" r="9" fill="#9f4967"/>
-    <circle cx="505" cy="229" r="9" fill="#9f4967"/>
+    <text x="640" y="158" text-anchor="middle" fill="#2b2927" font-family="Trebuchet MS, Segoe UI, Arial, sans-serif" font-size="82" font-weight="900" letter-spacing="-4">Auto</text>
+    <text x="640" y="252" text-anchor="middle" fill="url(#pink)" font-family="Trebuchet MS, Segoe UI, Arial, sans-serif" font-size="104" font-weight="900" letter-spacing="-4">Vencord</text>
   </g>
 
-  <text x="640" y="325" text-anchor="middle" fill="#b9a88d" font-family="Segoe UI, Arial, sans-serif" font-size="31" font-weight="800">Vencord stays patched after Discord updates</text>
+  <text x="640" y="330" text-anchor="middle" fill="#b9a88d" font-family="Segoe UI, Arial, sans-serif" font-size="31" font-weight="800">Vencord stays patched after Discord updates</text>
 
   <g transform="translate(390 354)">
     <rect x="0" y="0" width="238" height="54" rx="12" fill="#d987a2"/>
@@ -57,7 +52,8 @@
   <g transform="translate(250 454)">
     <rect x="0" y="0" width="242" height="92" rx="14" fill="url(#card)"/>
     <rect x="22" y="18" width="38" height="38" rx="10" fill="#332f2c"/>
-    <text x="41" y="44" text-anchor="middle" font-size="21">💗</text>
+    <path d="M41 45c-8-6-14-11-14-18 0-5 4-9 9-9 3 0 5 1 7 4 2-3 5-4 8-4 5 0 9 4 9 9 0 7-6 12-17 20z" fill="#f18cac"/>
+    <path d="M36 25c2-2 5-2 7 1" fill="none" stroke="#fff7fb" stroke-opacity=".55" stroke-width="2" stroke-linecap="round"/>
     <text x="74" y="38" fill="#d7c39e" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="850">No more repatch</text>
     <text x="74" y="64" fill="#a99980" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="650">runs only when needed</text>
   </g>
@@ -65,7 +61,8 @@
   <g transform="translate(519 454)">
     <rect x="0" y="0" width="242" height="92" rx="14" fill="url(#card)"/>
     <rect x="22" y="18" width="38" height="38" rx="10" fill="#332f2c"/>
-    <text x="41" y="44" text-anchor="middle" font-size="21">🔧</text>
+    <path d="M35 24l8 8 8-8 5 5-8 8 8 8-5 5-8-8-8 8-5-5 8-8-8-8z" fill="#d7c39e"/>
+    <circle cx="43" cy="37" r="4" fill="#332f2c"/>
     <text x="74" y="38" fill="#d7c39e" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="850">Official CLI</text>
     <text x="74" y="64" fill="#a99980" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="650">uses Vencord installer</text>
   </g>
@@ -73,7 +70,8 @@
   <g transform="translate(788 454)">
     <rect x="0" y="0" width="242" height="92" rx="14" fill="url(#card)"/>
     <rect x="22" y="18" width="38" height="38" rx="10" fill="#332f2c"/>
-    <text x="41" y="44" text-anchor="middle" font-size="21">✨</text>
+    <path d="M41 20l4 13 13 4-13 4-4 13-4-13-13-4 13-4z" fill="#f7d788"/>
+    <path d="M54 18l2 6 6 2-6 2-2 6-2-6-6-2 6-2z" fill="#f18cac"/>
     <text x="74" y="38" fill="#d7c39e" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="850">Tiny watcher</text>
     <text x="74" y="64" fill="#a99980" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="650">quiet Windows task</text>
   </g>
