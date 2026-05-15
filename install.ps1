@@ -105,6 +105,14 @@ $resolvedCorePath = Initialize-CoreModule
 . $resolvedCorePath
 Set-AutoVencordContext -BaseDir $installedBaseDir | Out-Null
 
+function Join-CodePoints {
+    param(
+        [int[]]$Codes
+    )
+
+    return (-join ($Codes | ForEach-Object { [char]$_ }))
+}
+
 function Get-PreferredLanguageCode {
     $candidates = @()
 
@@ -138,6 +146,74 @@ function Get-PreferredLanguageCode {
 }
 
 function Get-UiText {
+    $language = Get-PreferredLanguageCode
+    if ($language -eq "ru") {
+        return @{
+            Language = "ru"
+            BannerTitle = "AutoVencord"
+            BannerHint = Join-CodePoints @(1057,1090,1088,1077,1083,1082,1080,32,1074,1074,1077,1088,1093,47,1074,1085,1080,1079,32,45,32,1074,1099,1073,1086,1088,44,32,69,110,116,101,114,32,45,32,1079,1072,1087,1091,1089,1082,44,32,69,115,99,32,45,32,1074,1099,1093,1086,1076)
+            SectionTitle = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1082,1072,32,1080,32,1086,1073,1089,1083,1091,1078,1080,1074,1072,1085,1080,1077)
+            Installed = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1083,1077,1085,1086)
+            Yes = Join-CodePoints @(1044,1072)
+            No = Join-CodePoints @(1053,1077,1090)
+            Watchdog = "Watchdog"
+            Discord = "Discord"
+            Active = Join-CodePoints @(1040,1082,1090,1080,1074,1077,1085)
+            Inactive = Join-CodePoints @(1053,1077,1072,1082,1090,1080,1074,1077,1085)
+            NotInstalled = Join-CodePoints @(1053,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085)
+            Unknown = Join-CodePoints @(1053,1077,1080,1079,1074,1077,1089,1090,1085,1086)
+            DiscordMissing = Join-CodePoints @(1085,1077,32,1085,1072,1081,1076,1077,1085)
+            DiscordIncomplete = Join-CodePoints @(1085,1077,1087,1086,1083,1085,1072,1103,32,1091,1089,1090,1072,1085,1086,1074,1082,1072)
+            DiscordUpdating = Join-CodePoints @(1086,1073,1085,1086,1074,1083,1103,1077,1090,1089,1103)
+            DiscordMissingInstalled = Join-CodePoints @(68,105,115,99,111,114,100,32,1085,1077,32,1085,1072,1081,1076,1077,1085,46,32,65,117,116,111,86,101,110,99,111,114,100,32,1085,1077,32,1089,1084,1086,1078,1077,1090,32,1088,1072,1073,1086,1090,1072,1090,1100,44,32,1087,1086,1082,1072,32,68,105,115,99,111,114,100,32,1085,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085,46)
+            DiscordIncompleteMessage = Join-CodePoints @(68,105,115,99,111,114,100,32,1074,1099,1075,1083,1103,1076,1080,1090,32,1085,1077,1087,1086,1083,1085,1086,32,1080,1083,1080,32,1077,1097,1077,32,1086,1073,1085,1086,1074,1083,1103,1077,1090,1089,1103,46,32,1047,1072,1087,1091,1089,1090,1080,32,68,105,115,99,111,114,100,32,1086,1076,1080,1085,32,1088,1072,1079,32,1080,32,1087,1086,1074,1090,1086,1088,1080,46)
+            DiscordMissingInstall = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1080,32,68,105,115,99,111,114,100,32,1087,1077,1088,1077,1076,32,1091,1089,1090,1072,1085,1086,1074,1082,1086,1081,32,65,117,116,111,86,101,110,99,111,114,100,46)
+            Install = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1080,1090,1100)
+            Update = Join-CodePoints @(1054,1073,1085,1086,1074,1080,1090,1100)
+            Uninstall = Join-CodePoints @(1059,1076,1072,1083,1080,1090,1100)
+            UninstallMenuTitle = Join-CodePoints @(1059,1076,1072,1083,1077,1085,1080,1077)
+            UninstallAutoVencord = Join-CodePoints @(1058,1086,1083,1100,1082,1086,32,65,117,116,111,86,101,110,99,111,114,100)
+            UninstallBoth = Join-CodePoints @(65,117,116,111,86,101,110,99,111,114,100,32,43,32,1089,1085,1103,1090,1100,32,86,101,110,99,111,114,100)
+            Back = Join-CodePoints @(1053,1072,1079,1072,1076)
+            UninstallBothUnavailable = Join-CodePoints @(86,101,110,99,111,114,100,32,1084,1086,1078,1085,1086,32,1091,1076,1072,1083,1080,1090,1100,32,1090,1086,1083,1100,1082,1086,32,1082,1086,1075,1076,1072,32,68,105,115,99,111,114,100,32,1075,1086,1090,1086,1074,32,1080,32,1076,1086,1089,1090,1091,1087,1077,1085,32,86,101,110,99,111,114,100,73,110,115,116,97,108,108,101,114,67,108,105,46,101,120,101,46)
+            UninstallingVencord = Join-CodePoints @(1057,1085,1080,1084,1072,1102,32,1087,1072,1090,1095,32,86,101,110,99,111,114,100,46,46,46)
+            VencordUninstallDone = Join-CodePoints @(1055,1072,1090,1095,32,86,101,110,99,111,114,100,32,1089,1085,1103,1090,46)
+            ClosingDiscord = Join-CodePoints @(1047,1072,1082,1088,1099,1074,1072,1102,32,68,105,115,99,111,114,100,32,1087,1077,1088,1077,1076,32,1089,1085,1103,1090,1080,1077,1084,32,1087,1072,1090,1095,1072,46,46,46)
+            StoppingWatchdog = Join-CodePoints @(1054,1089,1090,1072,1085,1072,1074,1083,1080,1074,1072,1102,32,65,117,116,111,86,101,110,99,111,114,100,32,87,97,116,99,104,100,111,103,46,46,46)
+            RestoringAsarBackup = Join-CodePoints @(1042,1086,1089,1089,1090,1072,1085,1072,1074,1083,1080,1074,1072,1102,32,1080,1089,1093,1086,1076,1085,1099,1081,32,97,112,112,46,97,115,97,114,32,1080,1079,32,95,97,112,112,46,97,115,97,114,46,46,46)
+            VencordStillPatched = Join-CodePoints @(86,101,110,99,111,114,100,32,1074,1089,1077,32,1077,1097,1077,32,1086,1087,1088,1077,1076,1077,1083,1103,1077,1090,1089,1103,32,1087,1086,1089,1083,1077,32,1091,1076,1072,1083,1077,1085,1080,1103,32,1087,1072,1090,1095,1072,46)
+            MissingAsarBackup = Join-CodePoints @(1053,1077,32,1085,1072,1081,1076,1077,1085,32,95,97,112,112,46,97,115,97,114,32,1076,1083,1103,32,1074,1086,1089,1089,1090,1072,1085,1086,1074,1083,1077,1085,1080,1103,32,68,105,115,99,111,114,100,46)
+            OpenFolder = Join-CodePoints @(1054,1090,1082,1088,1099,1090,1100,32,1087,1072,1087,1082,1091)
+            Exit = Join-CodePoints @(1042,1099,1093,1086,1076)
+            Downloading = Join-CodePoints @(1057,1082,1072,1095,1080,1074,1072,1102,32,1072,1082,1090,1091,1072,1083,1100,1085,1099,1081,32,1091,1089,1090,1072,1085,1086,1074,1097,1080,1082,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
+            Updating = Join-CodePoints @(1054,1073,1085,1086,1074,1083,1103,1102,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
+            RunningUninstall = Join-CodePoints @(1047,1072,1087,1091,1089,1082,1072,1102,32,1091,1076,1072,1083,1077,1085,1080,1077,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
+            MissingUninstall = Join-CodePoints @(65,117,116,111,86,101,110,99,111,114,100,32,1085,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085,46)
+            AlreadyLatest = Join-CodePoints @(1059,32,1090,1077,1073,1103,32,1091,1078,1077,32,1087,1086,1089,1083,1077,1076,1085,1103,1103,32,1074,1077,1088,1089,1080,1103,46)
+            ConfirmInstallTitle = Join-CodePoints @(1042,1099,1073,1088,1072,1085,1072,32,1091,1089,1090,1072,1085,1086,1074,1082,1072,46)
+            ConfirmInstallEnter = Join-CodePoints @(1053,1072,1078,1084,1080,32,69,110,116,101,114,32,1077,1097,1077,32,1088,1072,1079,44,32,1095,1090,1086,1073,1099,32,1087,1086,1076,1090,1074,1077,1088,1076,1080,1090,1100,32,1091,1089,1090,1072,1085,1086,1074,1082,1091,46)
+            ConfirmInstallEsc = Join-CodePoints @(1053,1072,1078,1084,1080,32,69,115,99,44,32,1095,1090,1086,1073,1099,32,1074,1077,1088,1085,1091,1090,1100,1089,1103,32,1085,1072,1079,1072,1076,46)
+            InstallDone = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1082,1072,32,1079,1072,1074,1077,1088,1096,1077,1085,1072,46)
+            UpdateDone = Join-CodePoints @(1054,1073,1085,1086,1074,1083,1077,1085,1080,1077,32,1079,1072,1074,1077,1088,1096,1077,1085,1086,46)
+            UninstallDone = Join-CodePoints @(1059,1076,1072,1083,1077,1085,1080,1077,32,1079,1072,1074,1077,1088,1096,1077,1085,1086,46)
+            ResultHint = Join-CodePoints @(1053,1072,1078,1084,1080,32,69,110,116,101,114,32,45,32,1074,1077,1088,1085,1091,1090,1100,1089,1103,32,1074,32,1084,1077,1085,1102,44,32,69,115,99,32,45,32,1074,1099,1081,1090,1080,46)
+            UpdateAvailableSuffix = " *"
+            UpdateStatusLabel = Join-CodePoints @(1054,1073,1085,1086,1074,1083,1077,1085,1080,1077)
+            UpdateAvailable = Join-CodePoints @(1044,1086,1089,1090,1091,1087,1085,1086)
+            UpdateCurrent = Join-CodePoints @(1040,1082,1090,1091,1072,1083,1100,1085,1086)
+            UpdateUnavailable = Join-CodePoints @(1053,1077,1076,1086,1089,1090,1091,1087,1085,1086)
+            UpdateHintAvailable = Join-CodePoints @(1084,1086,1078,1085,1086,32,1086,1073,1085,1086,1074,1080,1090,1100)
+            UpdateHintCurrent = Join-CodePoints @(1072,1082,1090,1091,1072,1083,1100,1085,1086)
+            UpdateHintUnavailable = Join-CodePoints @(1085,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085)
+            ErrorInstall = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1082,1072,32,1085,1077,32,1091,1076,1072,1083,1072,1089,1100,46)
+            ErrorUpdate = Join-CodePoints @(1054,1073,1085,1086,1074,1083,1077,1085,1080,1077,32,1085,1077,32,1091,1076,1072,1083,1086,1089,1100,46)
+            ErrorPatch = Join-CodePoints @(1055,1072,1090,1095,32,68,105,115,99,111,114,100,32,1085,1077,32,1091,1076,1072,1083,1089,1103,46)
+            ErrorTask = Join-CodePoints @(1053,1077,32,1091,1076,1072,1083,1086,1089,1100,32,1079,1072,1088,1077,1075,1080,1089,1090,1088,1080,1088,1086,1074,1072,1090,1100,32,119,97,116,99,104,100,111,103,46)
+            ErrorNetwork = Join-CodePoints @(1053,1077,32,1091,1076,1072,1083,1086,1089,1100,32,1089,1082,1072,1095,1072,1090,1100,32,112,97,121,108,111,97,100,32,65,117,116,111,86,101,110,99,111,114,100,46)
+            ErrorCli = Join-CodePoints @(1053,1077,32,1091,1076,1072,1083,1086,1089,1100,32,1089,1082,1072,1095,1072,1090,1100,32,1080,1083,1080,32,1087,1088,1086,1074,1077,1088,1080,1090,1100,32,86,101,110,99,111,114,100,32,67,76,73,46)
+        }
+    }
+
     return @{
         Language = (Get-PreferredLanguageCode)
         BannerTitle = "AutoVencord"
@@ -376,6 +452,26 @@ function Get-UpdateAvailability {
 
     try {
         $payloadDefinition = Get-PayloadDefinition
+        $installedManifest = Get-InstalledPayloadManifest
+        if (-not $installedManifest) {
+            return $false
+        }
+
+        if ([string]$installedManifest.version -eq [string]$payloadDefinition.version) {
+            $allKnownMatch = $true
+            foreach ($property in $payloadDefinition.files.PSObject.Properties) {
+                $installedProperty = $installedManifest.files.PSObject.Properties[$property.Name]
+                if ($installedProperty -and ([string]$installedProperty.Value -ne [string]$property.Value)) {
+                    $allKnownMatch = $false
+                    break
+                }
+            }
+
+            if ($allKnownMatch) {
+                return $false
+            }
+        }
+
         return (-not (Test-InstalledPayloadMatches -PayloadDefinition $payloadDefinition))
     } catch {
         return $false
@@ -531,12 +627,25 @@ function Render-Menu {
         }
 
         $line = $left.PadRight($contentWidth) + $marker
+        $lineColor = [ConsoleColor]::White
+        $selectedBackground = [ConsoleColor]::Cyan
+        $selectedForeground = [ConsoleColor]::Black
+
+        if ($i -eq 1 -and $script:UpdateOptionSuffix) {
+            $lineColor = [ConsoleColor]::Yellow
+            $selectedBackground = [ConsoleColor]::Yellow
+        } elseif ($i -eq 3) {
+            $lineColor = [ConsoleColor]::Red
+            $selectedBackground = [ConsoleColor]::Red
+            $selectedForeground = [ConsoleColor]::White
+        }
+
         if (-not $EnabledStates[$i]) {
             Write-PaddedLine -Text $line -ForegroundColor DarkGray -Width $width
         } elseif ($i -eq $SelectedIndex) {
-            Write-SelectedLine -Text $line -Width $width -ForegroundColor Black -BackgroundColor Cyan
+            Write-SelectedLine -Text $line -Width $width -ForegroundColor $selectedForeground -BackgroundColor $selectedBackground
         } else {
-            Write-PaddedLine -Text $line -ForegroundColor White -Width $width
+            Write-PaddedLine -Text $line -ForegroundColor $lineColor -Width $width
         }
     }
 }
@@ -559,7 +668,6 @@ function Show-Menu {
         $Host.UI.RawUI.WindowTitle = $windowTitle
     } catch {}
 
-    Start-Sleep -Milliseconds 150
     Clear-PendingConsoleInput
 
     while ($true) {
@@ -641,7 +749,6 @@ function Show-ActionResult {
     Write-PaddedLine -Text ("  " + $Message) -ForegroundColor $Color -Width $width
     Write-PaddedLine -Text ("  " + $Ui.ResultHint) -ForegroundColor DarkGray -Width $width
 
-    Start-Sleep -Milliseconds 150
     Clear-PendingConsoleInput
     while ($true) {
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
@@ -879,7 +986,6 @@ function Show-UninstallMenu {
     while ($true) {
         Render-UninstallMenu -Ui $Ui -Options $options -EnabledStates $enabledStates -SelectedIndex $index -FirstRender:$firstRender
         $firstRender = $false
-        Clear-PendingConsoleInput
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 
         if ($key.VirtualKeyCode -eq 27) {
@@ -951,17 +1057,41 @@ function Invoke-Uninstall {
     }
 
     Write-Host $Ui.RunningUninstall -ForegroundColor Yellow
-    $oldNoPause = $env:AUTOVENCORD_NO_PAUSE
+    Stop-AutoVencordTask
+
     try {
-        $env:AUTOVENCORD_NO_PAUSE = "1"
-        & $context.UninstallPath
-        $exitCode = $LASTEXITCODE
-    } finally {
-        $env:AUTOVENCORD_NO_PAUSE = $oldNoPause
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object {
+                ($_.Name -in @("powershell.exe", "pwsh.exe")) -and
+                $_.CommandLine -like "*watchdog.ps1*"
+            } |
+            Where-Object { $_.ProcessId -ne $PID } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    } catch {}
+
+    $pathsToRemove = @(
+        $context.WatchdogPath,
+        $context.CorePath,
+        $context.InstallerPath,
+        $context.BatchPath,
+        $context.SetupPath,
+        (Join-Path $context.BaseDir "AutoVencord-Setup.sha256"),
+        $context.RuntimeManifestPath,
+        $context.UninstallPath,
+        $context.LogPath,
+        $context.PreviousLogPath
+    )
+
+    foreach ($path in $pathsToRemove) {
+        Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
     }
 
-    if ($exitCode -ne 0) {
-        throw "AutoVencord uninstaller failed with exit code $exitCode"
+    Remove-Item -LiteralPath $context.BaseDir -Force -Recurse -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $context.BaseDir) {
+        $runtimeLeft = Get-ChildItem -LiteralPath $context.BaseDir -Force -ErrorAction SilentlyContinue
+        if ($runtimeLeft.Count -gt 0) {
+            throw "AutoVencord uninstaller could not remove all files."
+        }
     }
 }
 
@@ -1048,6 +1178,7 @@ while ($true) {
                 }
             }
         } elseif ($selection -eq 3) {
+            $uninstallCompleted = $false
             if (-not $autoAction) {
                 $uninstallSelection = Show-UninstallMenu -Ui $ui
                 $selectedIndex = 3
@@ -1062,8 +1193,9 @@ while ($true) {
             }
 
             Invoke-Uninstall -Ui $ui
+            $uninstallCompleted = $true
             if (-not $autoAction) {
-                if (Show-ActionResult -Ui $ui -Message $ui.UninstallDone -Color Green) {
+                if ($uninstallCompleted -and (Show-ActionResult -Ui $ui -Message $ui.UninstallDone -Color Green)) {
                     continue
                 }
             }
