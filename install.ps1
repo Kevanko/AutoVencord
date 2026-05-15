@@ -664,7 +664,7 @@ function Get-UpdateColor {
     }
 
     if ($Status.UpdateState -eq "Current") {
-        return [ConsoleColor]::Green
+        return [ConsoleColor]::White
     }
 
     return [ConsoleColor]::DarkGray

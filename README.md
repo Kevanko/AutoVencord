@@ -1,8 +1,8 @@
 ﻿# AutoVencord
 
-![AutoVencord EN preview](./assets/banner-en.svg)
+![AutoVencord preview](./assets/preview.svg)
 
-AutoVencord keeps Vencord working after Discord updates. It installs a small local watcher, uses the official Vencord CLI, and patches Discord only when it is actually needed.
+AutoVencord is a small Windows automation for Vencord. It keeps Vencord working after Discord updates by using the official Vencord CLI only when a new Discord `app-*` version needs repair.
 
 ## Quick Start
 
@@ -78,15 +78,9 @@ You can also remove only AutoVencord with:
 %LOCALAPPDATA%\AutoVencord\uninstall.bat
 ```
 
-## Flow
-
-![AutoVencord flow](./assets/flow.svg)
-
 ## RU
 
-![AutoVencord RU preview](./assets/banner-ru.svg)
-
-AutoVencord помогает Vencord не слетать после обновлений Discord. Он ставит маленький локальный watcher, использует официальный Vencord CLI и патчит Discord только когда это реально нужно.
+AutoVencord — маленькая автоматизация для Vencord на Windows. Она помогает Vencord не слетать после обновлений Discord: следит за новыми версиями Discord `app-*` и запускает официальный Vencord CLI только когда нужен ремонт патча.
 
 ## Быстрый Старт
 
