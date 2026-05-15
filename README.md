@@ -52,8 +52,10 @@ Installed folder:
 
 Main files:
 
+- `AutoVencord.Core.ps1`
 - `AutoVencord-Setup.ps1`
 - `watchdog.ps1`
+- `installed-manifest.json`
 - `uninstall.bat`
 - `last-action.log`
 
@@ -132,8 +134,10 @@ AutoVencord не даст установить себя, если Discord не �
 
 Основные файлы:
 
+- `AutoVencord.Core.ps1`
 - `AutoVencord-Setup.ps1`
 - `watchdog.ps1`
+- `installed-manifest.json`
 - `uninstall.bat`
 - `last-action.log`
 

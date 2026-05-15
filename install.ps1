@@ -1,25 +1,15 @@
 $ErrorActionPreference = "Stop"
 
-$installerPayloadRef = "a24e8ee"
-$installerExpectedHash = "64A5943BF264216A43C49ECBA0CD3BD46D6907DEDB0AB3A9E18872D7D3CDAB2D"
-$installerPinnedUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/$installerPayloadRef/AutoVencord-Setup.ps1"
-$installerUrl = "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/AutoVencord-Setup.ps1"
-$installerFallbackUrl = "https://github.com/Kevanko/AutoVencord/raw/main/AutoVencord-Setup.ps1"
-$installerFreshMarker = "function Invoke-SchtasksSafe {"
+$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.15.1"
+$installerPayloadRef = "main"
+$installerPayloadMarker = "AUTOVENCORD_PAYLOAD_VERSION"
+$windowTitle = "AutoVencord"
 $scriptRoot = if ($MyInvocation.MyCommand.Path) { Split-Path -Parent $MyInvocation.MyCommand.Path } else { $PWD.Path }
-$localSetupCandidate = Join-Path $scriptRoot "AutoVencord-Setup.ps1"
 $tempDir = Join-Path $env:TEMP "AutoVencord"
 $setupPath = Join-Path $tempDir "AutoVencord-Setup.ps1"
+$payloadManifestTempPath = Join-Path $tempDir "AutoVencord-Payload.json"
+$coreTempPath = Join-Path $tempDir "AutoVencord.Core.ps1"
 $installedBaseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
-$installedInstallerPath = Join-Path $installedBaseDir "AutoVencord-OneClick.bat"
-$installedSetupPath = Join-Path $installedBaseDir "AutoVencord-Setup.ps1"
-$installedSetupHashPath = Join-Path $installedBaseDir "AutoVencord-Setup.sha256"
-$uninstallPath = Join-Path $installedBaseDir "uninstall.bat"
-$watchdogScriptPath = Join-Path $installedBaseDir "watchdog.ps1"
-$installedCliPath = Join-Path $installedBaseDir "VencordInstallerCli.exe"
-$discordRoot = Join-Path $env:LOCALAPPDATA "Discord"
-$windowTitle = "AutoVencord"
-$taskName = "AutoVencord Watchdog"
 
 function Enable-Tls12IfAvailable {
     try {
@@ -27,77 +17,40 @@ function Enable-Tls12IfAvailable {
     } catch {}
 }
 
-function Download-File($url, $outFile) {
+function Invoke-BootstrapDownload {
+    param(
+        [string[]]$Urls,
+        [string]$DestinationPath,
+        [scriptblock]$ValidationScript
+    )
+
     Enable-Tls12IfAvailable
-
-    if (Get-Command Invoke-WebRequest -ErrorAction SilentlyContinue) {
-        Invoke-WebRequest -UseBasicParsing $url -OutFile $outFile
-        return
+    $directory = Split-Path -Parent $DestinationPath
+    if ($directory) {
+        New-Item -ItemType Directory -Force -Path $directory | Out-Null
     }
 
-    $client = New-Object System.Net.WebClient
-    $client.DownloadFile($url, $outFile)
-}
-
-function Test-InstallerPayload {
-    param(
-        [string]$Path,
-        [switch]$RequireExpectedHash
-    )
-
-    if (-not (Test-Path $Path)) {
-        return $false
-    }
-
-    try {
-        $content = Get-Content -LiteralPath $Path -Raw
-        if (-not $content.Contains($installerFreshMarker)) {
-            return $false
-        }
-
-        if ($RequireExpectedHash) {
-            $hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
-            return $hash.ToUpperInvariant() -eq $installerExpectedHash
-        }
-
-        return $true
-    } catch {
-        return $false
-    }
-}
-
-function Get-InstallerCandidateUrls {
-    return @(
-        $installerPinnedUrl,
-        $installerUrl,
-        $installerFallbackUrl,
-        ("{0}?raw=1" -f $installerFallbackUrl)
-    )
-}
-
-function Download-FreshInstallerPayload {
-    param(
-        [string]$OutFile,
-        [switch]$AllowLocalFallback
-    )
-
-    if ($AllowLocalFallback -and (Test-InstallerPayload -Path $localSetupCandidate)) {
-        Copy-Item -LiteralPath $localSetupCandidate -Destination $OutFile -Force
-        return
-    }
-
-    $urls = Get-InstallerCandidateUrls
     $lastError = $null
-
-    foreach ($url in $urls) {
+    foreach ($url in $Urls) {
+        $tempPath = "{0}.{1}.tmp" -f $DestinationPath, ([guid]::NewGuid().ToString("N"))
         try {
-            Download-File $url $OutFile
-
-            if (Test-InstallerPayload -Path $OutFile -RequireExpectedHash) {
-                return
+            if (Get-Command Invoke-WebRequest -ErrorAction SilentlyContinue) {
+                Invoke-WebRequest -UseBasicParsing $url -OutFile $tempPath
+            } else {
+                $client = New-Object System.Net.WebClient
+                $client.DownloadFile($url, $tempPath)
             }
+
+            if ($ValidationScript -and -not (& $ValidationScript $tempPath)) {
+                throw "Downloaded file did not pass validation."
+            }
+
+            Move-Item -LiteralPath $tempPath -Destination $DestinationPath -Force
+            return $true
         } catch {
             $lastError = $_
+        } finally {
+            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
         }
     }
 
@@ -105,16 +58,52 @@ function Download-FreshInstallerPayload {
         throw $lastError
     }
 
-    throw "Downloaded installer payload is stale or invalid."
+    throw "Unable to download required bootstrap file."
 }
 
-function Join-CodePoints {
+function Get-PayloadCandidateUrls {
     param(
-        [int[]]$Codes
+        [string]$FileName
     )
 
-    return (-join ($Codes | ForEach-Object { [char]$_ }))
+    return @(
+        "https://raw.githubusercontent.com/Kevanko/AutoVencord/$installerPayloadRef/${FileName}",
+        "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/${FileName}",
+        "https://github.com/Kevanko/AutoVencord/raw/main/${FileName}",
+        "https://github.com/Kevanko/AutoVencord/raw/main/${FileName}?raw=1"
+    )
 }
+
+function Test-CorePayload {
+    param(
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $false
+    }
+
+    try {
+        $content = Get-Content -LiteralPath $Path -Raw
+        return ($content.Contains("Get-AutoVencordPayloadVersion") -and $content.Contains($AUTOVENCORD_PAYLOAD_VERSION))
+    } catch {
+        return $false
+    }
+}
+
+function Initialize-CoreModule {
+    $localCorePath = Join-Path $scriptRoot "AutoVencord.Core.ps1"
+    if (Test-Path -LiteralPath $localCorePath) {
+        return $localCorePath
+    }
+
+    Invoke-BootstrapDownload -Urls (Get-PayloadCandidateUrls -FileName "AutoVencord.Core.ps1") -DestinationPath $coreTempPath -ValidationScript ${function:Test-CorePayload}
+    return $coreTempPath
+}
+
+$resolvedCorePath = Initialize-CoreModule
+. $resolvedCorePath
+Set-AutoVencordContext -BaseDir $installedBaseDir | Out-Null
 
 function Get-PreferredLanguageCode {
     $candidates = @()
@@ -129,12 +118,9 @@ function Get-PreferredLanguageCode {
     try { $candidates += [System.Globalization.CultureInfo]::CurrentCulture.TwoLetterISOLanguageName } catch {}
     try { $candidates += (Get-UICulture).Name } catch {}
     try { $candidates += (Get-Culture).Name } catch {}
-    try { $candidates += (Get-WinSystemLocale).Name } catch {}
-    try { $candidates += (Get-WinUserLanguageList | ForEach-Object { $_.LanguageTag }) } catch {}
 
     foreach ($candidate in $candidates) {
         $value = [string]$candidate
-
         if ([string]::IsNullOrWhiteSpace($value)) {
             continue
         }
@@ -152,72 +138,10 @@ function Get-PreferredLanguageCode {
 }
 
 function Get-UiText {
-    $language = Get-PreferredLanguageCode
-
-    if ($language -eq "ru") {
-        return @{
-            Language = "ru"
-            BannerTitle = "AutoVencord"
-            BannerHint = Join-CodePoints @(1057,1090,1088,1077,1083,1082,1080,32,1074,1074,1077,1088,1093,47,1074,1085,1080,1079,32,45,32,1074,1099,1073,1086,1088,44,32,69,110,116,101,114,32,45,32,1079,1072,1087,1091,1089,1082,44,32,69,115,99,32,45,32,1074,1099,1093,1086,1076)
-            SectionTitle = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1082,1072,32,1080,32,1086,1073,1089,1083,1091,1078,1080,1074,1072,1085,1080,1077)
-            Installed = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1083,1077,1085,1086)
-            Yes = Join-CodePoints @(1044,1072)
-            No = Join-CodePoints @(1053,1077,1090)
-            Watchdog = "Watchdog"
-            Discord = "Discord"
-            Active = Join-CodePoints @(1040,1082,1090,1080,1074,1077,1085)
-            Inactive = Join-CodePoints @(1053,1077,1072,1082,1090,1080,1074,1077,1085)
-            NotInstalled = Join-CodePoints @(1053,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085)
-            Unknown = Join-CodePoints @(1053,1077,1080,1079,1074,1077,1089,1090,1085,1086)
-            DiscordMissing = Join-CodePoints @(1085,1077,32,1085,1072,1081,1076,1077,1085)
-            DiscordIncomplete = Join-CodePoints @(1085,1077,1087,1086,1083,1085,1072,1103,32,1091,1089,1090,1072,1085,1086,1074,1082,1072,32,47,32,1086,1073,1085,1086,1074,1083,1103,1077,1090,1089,1103)
-            DiscordMissingInstalled = Join-CodePoints @(68,105,115,99,111,114,100,32,1085,1077,32,1085,1072,1081,1076,1077,1085,46,32,65,117,116,111,86,101,110,99,111,114,100,32,1073,1086,1083,1100,1096,1077,32,1085,1077,32,1089,1084,1086,1078,1077,1090,32,1088,1072,1073,1086,1090,1072,1090,1100,44,32,1087,1086,1082,1072,32,68,105,115,99,111,114,100,32,1085,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085,46)
-            DiscordIncompleteMessage = Join-CodePoints @(68,105,115,99,111,114,100,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085,32,1085,1077,1087,1086,1083,1085,1086,32,1080,1083,1080,32,1086,1073,1085,1086,1074,1083,1103,1077,1090,1089,1103,46,32,1047,1072,1087,1091,1089,1090,1080,1090,1077,32,68,105,115,99,111,114,100,32,1086,1076,1080,1085,32,1088,1072,1079,32,1080,32,1087,1086,1074,1090,1086,1088,1080,1090,1077,46)
-            DiscordMissingInstall = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1080,1090,1077,32,68,105,115,99,111,114,100,32,1087,1077,1088,1077,1076,32,1091,1089,1090,1072,1085,1086,1074,1082,1086,1081,32,65,117,116,111,86,101,110,99,111,114,100,46)
-            Install = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1080,1090,1100)
-            Update = Join-CodePoints @(1054,1073,1085,1086,1074,1080,1090,1100)
-            Uninstall = Join-CodePoints @(1059,1076,1072,1083,1080,1090,1100)
-            UninstallMenuTitle = Join-CodePoints @(1059,1076,1072,1083,1077,1085,1080,1077)
-            UninstallAutoVencord = Join-CodePoints @(1058,1086,1083,1100,1082,1086,32,65,117,116,111,86,101,110,99,111,114,100)
-            UninstallBoth = Join-CodePoints @(65,117,116,111,86,101,110,99,111,114,100,32,43,32,1089,1085,1103,1090,1100,32,86,101,110,99,111,114,100)
-            Back = Join-CodePoints @(1053,1072,1079,1072,1076)
-            UninstallBothUnavailable = Join-CodePoints @(86,101,110,99,111,114,100,32,1084,1086,1078,1085,1086,32,1089,1085,1103,1090,1100,32,1090,1086,1083,1100,1082,1086,32,1082,1086,1075,1076,1072,32,68,105,115,99,111,114,100,32,1080,32,86,101,110,99,111,114,100,73,110,115,116,97,108,108,101,114,67,108,105,46,101,120,101,32,1076,1086,1089,1090,1091,1087,1085,1099,46)
-            UninstallingVencord = Join-CodePoints @(1057,1085,1080,1084,1072,1102,32,1087,1072,1090,1095,32,86,101,110,99,111,114,100,46,46,46)
-            VencordUninstallDone = Join-CodePoints @(1055,1072,1090,1095,32,86,101,110,99,111,114,100,32,1089,1085,1103,1090,46)
-            ClosingDiscord = Join-CodePoints @(1047,1072,1082,1088,1099,1074,1072,1102,32,68,105,115,99,111,114,100,32,1087,1077,1088,1077,1076,32,1089,1085,1103,1090,1080,1077,1084,32,1087,1072,1090,1095,1072,46,46,46)
-            StoppingWatchdog = Join-CodePoints @(1054,1089,1090,1072,1085,1072,1074,1083,1080,1074,1072,1102,32,65,117,116,111,86,101,110,99,111,114,100,32,87,97,116,99,104,100,111,103,46,46,46)
-            RestoringAsarBackup = Join-CodePoints @(1042,1086,1089,1089,1090,1072,1085,1072,1074,1083,1080,1074,1072,1102,32,1086,1088,1080,1075,1080,1085,1072,1083,1100,1085,1099,1081,32,97,112,112,46,97,115,97,114,32,1080,1079,32,95,97,112,112,46,97,115,97,114,46,46,46)
-            VencordStillPatched = Join-CodePoints @(86,101,110,99,111,114,100,32,1074,1089,1105,32,1077,1097,1105,32,1085,1072,1081,1076,1077,1085,32,1087,1086,1089,1083,1077,32,1089,1085,1103,1090,1080,1103,32,1087,1072,1090,1095,1072,46)
-            MissingAsarBackup = Join-CodePoints @(1053,1077,32,1085,1072,1081,1076,1077,1085,32,1088,1077,1079,1077,1088,1074,1085,1099,1081,32,95,97,112,112,46,97,115,97,114,32,1076,1083,1103,32,1074,1086,1089,1089,1090,1072,1085,1086,1074,1083,1077,1085,1080,1103,32,68,105,115,99,111,114,100,46)
-            OpenFolder = Join-CodePoints @(1054,1090,1082,1088,1099,1090,1100,32,1087,1072,1087,1082,1091)
-            Exit = Join-CodePoints @(1042,1099,1093,1086,1076)
-            Downloading = Join-CodePoints @(1057,1082,1072,1095,1080,1074,1072,1102,32,1072,1082,1090,1091,1072,1083,1100,1085,1099,1081,32,1091,1089,1090,1072,1085,1086,1074,1097,1080,1082,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
-            Updating = Join-CodePoints @(1054,1073,1085,1086,1074,1083,1103,1102,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
-            RunningUninstall = Join-CodePoints @(1047,1072,1087,1091,1089,1082,1072,1102,32,1091,1076,1072,1083,1077,1085,1080,1077,32,65,117,116,111,86,101,110,99,111,114,100,46,46,46)
-            MissingUninstall = Join-CodePoints @(65,117,116,111,86,101,110,99,111,114,100,32,1085,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085,46)
-            AlreadyLatest = Join-CodePoints @(1059,32,1074,1072,1089,32,1072,1082,1090,1091,1072,1083,1100,1085,1072,1103,32,1074,1077,1088,1089,1080,1103,46)
-            ConfirmInstallTitle = Join-CodePoints @(1042,1099,1073,1088,1072,1085,1072,32,1091,1089,1090,1072,1085,1086,1074,1082,1072,46)
-            ConfirmInstallEnter = Join-CodePoints @(1053,1072,1078,1084,1080,32,69,110,116,101,114,32,1077,1097,1077,32,1088,1072,1079,32,1076,1083,1103,32,1087,1086,1076,1090,1074,1077,1088,1078,1076,1077,1085,1080,1103,46)
-            ConfirmInstallEsc = Join-CodePoints @(1053,1072,1078,1084,1080,32,69,115,99,44,32,1095,1090,1086,1073,1099,32,1074,1077,1088,1085,1091,1090,1100,1089,1103,32,1085,1072,1079,1072,1076,46)
-            InstallDone = Join-CodePoints @(1059,1089,1090,1072,1085,1086,1074,1083,1077,1085,1086,32,1091,1089,1087,1077,1096,1085,1086,46)
-            UpdateDone = Join-CodePoints @(1054,1073,1085,1086,1074,1083,1077,1085,1086,32,1091,1089,1087,1077,1096,1085,1086,46)
-            UninstallDone = Join-CodePoints @(1059,1076,1072,1083,1077,1085,1086,32,1091,1089,1087,1077,1096,1085,1086,46)
-            ResultHint = Join-CodePoints @(1053,1072,1078,1084,1080,1090,1077,32,69,110,116,101,114,44,32,1095,1090,1086,1073,1099,32,1074,1077,1088,1085,1091,1090,1100,1089,1103,32,1074,32,1084,1077,1085,1102,46,32,69,115,99,32,45,32,1074,1099,1081,1090,1080,46)
-            UpdateAvailableSuffix = " *"
-            UpdateStatusLabel = Join-CodePoints @(1054,1073,1085,1086,1074,1083,1077,1085,1080,1077)
-            UpdateAvailable = Join-CodePoints @(1044,1086,1089,1090,1091,1087,1085,1086)
-            UpdateCurrent = Join-CodePoints @(1040,1082,1090,1091,1072,1083,1100,1085,1086)
-            UpdateUnavailable = Join-CodePoints @(1053,1077,1076,1086,1089,1090,1091,1087,1085,1086)
-            UpdateHintAvailable = Join-CodePoints @(1084,1086,1078,1085,1086,32,1086,1073,1085,1086,1074,1080,1090,1100)
-            UpdateHintCurrent = Join-CodePoints @(1072,1082,1090,1091,1072,1083,1100,1085,1086)
-            UpdateHintUnavailable = Join-CodePoints @(1085,1077,32,1091,1089,1090,1072,1085,1086,1074,1083,1077,1085)
-        }
-    }
-
     return @{
-        Language = "en"
+        Language = (Get-PreferredLanguageCode)
         BannerTitle = "AutoVencord"
-        BannerHint = "Use Up/Down arrows to move, Enter to run"
+        BannerHint = "Use Up/Down arrows to move, Enter to run, Esc to exit"
         SectionTitle = "Setup and Maintenance"
         Installed = "Installed"
         Yes = "Yes"
@@ -229,9 +153,10 @@ function Get-UiText {
         NotInstalled = "Not installed"
         Unknown = "Unknown"
         DiscordMissing = "not found"
-        DiscordIncomplete = "incomplete / updating"
+        DiscordIncomplete = "incomplete"
+        DiscordUpdating = "updating"
         DiscordMissingInstalled = "Discord is missing. AutoVencord cannot work until Discord is installed."
-        DiscordIncompleteMessage = "Discord looks incomplete or is updating. Start Discord once, then try again."
+        DiscordIncompleteMessage = "Discord looks incomplete or is still updating. Start Discord once, then try again."
         DiscordMissingInstall = "Install Discord before installing AutoVencord."
         Install = "Install"
         Update = "Update"
@@ -240,7 +165,7 @@ function Get-UiText {
         UninstallAutoVencord = "AutoVencord only"
         UninstallBoth = "AutoVencord + remove Vencord"
         Back = "Back"
-        UninstallBothUnavailable = "Vencord can be removed only when Discord and VencordInstallerCli.exe are available."
+        UninstallBothUnavailable = "Vencord can be removed only when Discord is ready and VencordInstallerCli.exe is available."
         UninstallingVencord = "Removing Vencord patch..."
         VencordUninstallDone = "Vencord patch removed."
         ClosingDiscord = "Closing Discord before removing the patch..."
@@ -270,116 +195,93 @@ function Get-UiText {
         UpdateHintAvailable = "update available"
         UpdateHintCurrent = "current"
         UpdateHintUnavailable = "not installed"
+        ErrorInstall = "Installation failed."
+        ErrorUpdate = "Update failed."
+        ErrorPatch = "Discord patch failed."
+        ErrorTask = "Failed to register watchdog."
+        ErrorNetwork = "Failed to download AutoVencord payload."
+        ErrorCli = "Failed to download or validate Vencord CLI."
     }
 }
 
-function Get-WatchdogState {
-    if (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue) {
-        try {
-            $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-            return [string]$task.State
-        } catch {
-            return "NotInstalled"
-        }
+function Get-PayloadDefinition {
+    $localManifest = Join-Path $scriptRoot "AutoVencord-Payload.json"
+    if (Test-Path -LiteralPath $localManifest) {
+        return (Read-JsonFile -Path $localManifest)
     }
 
-    try {
-        $output = & schtasks.exe /Query /TN $taskName /FO LIST 2>$null
-        if ($LASTEXITCODE -ne 0 -or -not $output) {
-            return "NotInstalled"
-        }
+    $download = Invoke-DownloadToFile -Urls (Get-PayloadCandidateUrls -FileName "AutoVencord-Payload.json") -DestinationPath $payloadManifestTempPath -MinBytes 32
+    if (-not $download.Success) {
+        throw "Failed to load payload manifest: $($download.Errors -join '; ')"
+    }
 
-        $statusLine = $output | Where-Object { $_ -like "Status:*" } | Select-Object -First 1
-        if ($statusLine) {
-            return ($statusLine -replace "^Status:\s*", "").Trim()
-        }
-    } catch {}
+    $manifest = Read-JsonFile -Path $payloadManifestTempPath
+    if (-not $manifest) {
+        throw "Payload manifest is invalid."
+    }
 
-    return "Unknown"
+    return $manifest
 }
 
-function Get-DiscordAppVersion {
+function Test-SetupPayload {
     param(
-        [string]$DirectoryName
+        [string]$Path,
+        $PayloadDefinition
     )
 
-    $raw = $DirectoryName -replace "^app-", ""
-
-    try {
-        return [version]$raw
-    } catch {
-        return [version]"0.0.0.0"
-    }
-}
-
-function Get-LatestDiscordInstall {
-    if (-not (Test-Path $discordRoot)) {
-        return $null
-    }
-
-    $latest = $null
-    $latestVersion = [version]"0.0.0.0"
-    $latestWriteTime = [datetime]::MinValue
-
-    $dirs = Get-ChildItem $discordRoot -ErrorAction SilentlyContinue |
-        Where-Object { $_.PSIsContainer -and $_.Name -like "app-*" }
-
-    foreach ($dir in $dirs) {
-        $version = Get-DiscordAppVersion -DirectoryName $dir.Name
-
-        if (($version -gt $latestVersion) -or ($version -eq $latestVersion -and $dir.LastWriteTimeUtc -gt $latestWriteTime)) {
-            $latest = $dir
-            $latestVersion = $version
-            $latestWriteTime = $dir.LastWriteTimeUtc
-        }
-    }
-
-    return $latest
-}
-
-function Test-DiscordInstallReady {
-    param(
-        $AppDir
-    )
-
-    if (-not $AppDir) {
+    if (-not (Test-Path -LiteralPath $Path)) {
         return $false
     }
 
-    $resources = Join-Path $AppDir.FullName "resources"
-    $appAsar = Join-Path $resources "app.asar"
-    $buildInfo = Join-Path $resources "build_info.json"
+    try {
+        $content = Get-Content -LiteralPath $Path -Raw
+        if (-not ($content.Contains('$payloadVersion') -and $content.Contains($AUTOVENCORD_PAYLOAD_VERSION))) {
+            return $false
+        }
 
-    return ((Test-Path $resources) -and (Test-Path $appAsar) -and (Test-Path $buildInfo))
+        $expectedHashProperty = $PayloadDefinition.files.PSObject.Properties["AutoVencord-Setup.ps1"]
+        if (-not $expectedHashProperty) {
+            return $true
+        }
+
+        return ((Get-FileSha256 -Path $Path) -eq [string]$expectedHashProperty.Value)
+    } catch {
+        return $false
+    }
 }
 
-function Get-DiscordPreflight {
-    if (-not (Test-Path $discordRoot)) {
+function Download-LatestInstaller {
+    param(
+        [hashtable]$Ui,
+        [switch]$AllowLocalFallback
+    )
+
+    $payloadDefinition = Get-PayloadDefinition
+    New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+    Write-Host $Ui.Downloading -ForegroundColor Cyan
+
+    $localSetupCandidate = Join-Path $scriptRoot "AutoVencord-Setup.ps1"
+    if ($AllowLocalFallback -and (Test-Path -LiteralPath $localSetupCandidate) -and (Test-SetupPayload -Path $localSetupCandidate -PayloadDefinition $payloadDefinition)) {
+        Copy-Item -LiteralPath $localSetupCandidate -Destination $setupPath -Force
         return [pscustomobject]@{
-            State = "Missing"
-            Latest = $null
+            SetupPath = $setupPath
+            PayloadDefinition = $payloadDefinition
         }
     }
 
-    $latest = Get-LatestDiscordInstall
+    $validation = {
+        param($Path)
+        Test-SetupPayload -Path $Path -PayloadDefinition $payloadDefinition
+    }.GetNewClosure()
 
-    if (-not $latest) {
-        return [pscustomobject]@{
-            State = "Incomplete"
-            Latest = $null
-        }
-    }
-
-    if (-not (Test-DiscordInstallReady -AppDir $latest)) {
-        return [pscustomobject]@{
-            State = "Incomplete"
-            Latest = $latest
-        }
+    $download = Invoke-DownloadToFile -Urls (Get-PayloadCandidateUrls -FileName "AutoVencord-Setup.ps1") -DestinationPath $setupPath -MinBytes 1024 -ValidationScript $validation
+    if (-not $download.Success) {
+        throw "Failed to download setup payload: $($download.Errors -join '; ')"
     }
 
     return [pscustomobject]@{
-        State = "Ready"
-        Latest = $latest
+        SetupPath = $setupPath
+        PayloadDefinition = $payloadDefinition
     }
 }
 
@@ -388,170 +290,93 @@ function Get-StatusText {
         [hashtable]$Ui
     )
 
-    $hasCoreFiles = (Test-Path $installedSetupPath) -or (Test-Path $installedInstallerPath) -or (Test-Path $watchdogScriptPath) -or (Test-Path $installedCliPath)
-    $isInstalled = (Test-Path $uninstallPath) -and $hasCoreFiles
-    $watchdogState = Get-WatchdogState
-    $discord = Get-DiscordPreflight
-    $installedValue = if ($isInstalled) { $Ui.Yes } else { $Ui.No }
+    $status = Get-AutoVencordStatus
+    $installedValue = if ($status.Installed) { $Ui.Yes } else { $Ui.No }
+    $watchdogState = $status.Watchdog
 
-    if ($watchdogState -match "Ready|Running") {
-        $watchdogValue = "{0} ({1})" -f $Ui.Active, $watchdogState
-    } elseif ($watchdogState -eq "NotInstalled") {
+    if ($watchdogState.State -eq "WatchdogRunning") {
+        $watchdogValue = "{0} ({1})" -f $Ui.Active, $watchdogState.RawState
+    } elseif ($watchdogState.State -eq "WatchdogMissing") {
         $watchdogValue = $Ui.NotInstalled
-    } elseif ($watchdogState -eq "Unknown") {
-        $watchdogValue = $Ui.Unknown
+    } elseif ($watchdogState.State -eq "WatchdogInstalled") {
+        $watchdogValue = "{0} ({1})" -f $Ui.Inactive, $watchdogState.RawState
     } else {
-        $watchdogValue = "{0} ({1})" -f $Ui.Inactive, $watchdogState
+        $watchdogValue = "{0} ({1})" -f $Ui.Unknown, $watchdogState.RawState
     }
 
     $discordValue = $null
     $discordMessage = $null
-
-    if ($discord.State -eq "Missing") {
-        $discordValue = $Ui.DiscordMissing
-        $discordMessage = if ($isInstalled) { $Ui.DiscordMissingInstalled } else { $Ui.DiscordMissingInstall }
-    } elseif ($discord.State -eq "Incomplete") {
-        $discordValue = $Ui.DiscordIncomplete
-        $discordMessage = $Ui.DiscordIncompleteMessage
+    switch ($status.Discord.State) {
+        "DiscordMissing" {
+            $discordValue = $Ui.DiscordMissing
+            $discordMessage = if ($status.Installed) { $Ui.DiscordMissingInstalled } else { $Ui.DiscordMissingInstall }
+        }
+        "DiscordIncomplete" {
+            $discordValue = $Ui.DiscordIncomplete
+            $discordMessage = $Ui.DiscordIncompleteMessage
+        }
+        "DiscordUpdating" {
+            $discordValue = $Ui.DiscordUpdating
+            $discordMessage = $Ui.DiscordIncompleteMessage
+        }
     }
 
     return [pscustomobject]@{
         InstalledLabel = $Ui.Installed
         InstalledValue = $installedValue
-        InstalledOk = $isInstalled
-        InstallFolderExists = (Test-Path $installedBaseDir)
+        InstalledOk = $status.Installed
+        InstallFolderExists = (Test-Path -LiteralPath $installedBaseDir)
         WatchdogLabel = $Ui.Watchdog
         WatchdogValue = $watchdogValue
-        WatchdogOk = ($watchdogState -match "Ready|Running")
-        RawWatchdogState = $watchdogState
+        WatchdogOk = ($watchdogState.State -eq "WatchdogRunning")
         DiscordLabel = $Ui.Discord
-        DiscordState = $discord.State
+        DiscordState = $status.Discord.State
         DiscordValue = $discordValue
         DiscordMessage = $discordMessage
+        Manifest = $status.Manifest
     }
 }
 
-function Write-PaddedLine {
+function Test-InstalledPayloadMatches {
     param(
-        [string]$Text = "",
-        [ConsoleColor]$ForegroundColor = [ConsoleColor]::Gray,
-        [int]$Width = 80
+        $PayloadDefinition
     )
 
-    $safeWidth = [Math]::Max(20, $Width)
-    $trimmed = if ($Text.Length -gt $safeWidth) { $Text.Substring(0, $safeWidth) } else { $Text }
-    $padded = $trimmed.PadRight($safeWidth)
-    Write-Host $padded -ForegroundColor $ForegroundColor
-}
-
-function Write-SelectedLine {
-    param(
-        [string]$Text = "",
-        [int]$Width = 80,
-        [ConsoleColor]$ForegroundColor = [ConsoleColor]::Black,
-        [ConsoleColor]$BackgroundColor = [ConsoleColor]::Cyan
-    )
-
-    $safeWidth = [Math]::Max(20, $Width)
-    $trimmed = if ($Text.Length -gt $safeWidth) { $Text.Substring(0, $safeWidth) } else { $Text }
-    $padded = $trimmed.PadRight($safeWidth)
-    Write-Host $padded -ForegroundColor $ForegroundColor -BackgroundColor $BackgroundColor
-}
-
-function Test-SameFileHash {
-    param(
-        [string]$LeftPath,
-        [string]$RightPath
-    )
-
-    if (-not (Test-Path $LeftPath) -or -not (Test-Path $RightPath)) {
+    $installedManifest = Get-InstalledPayloadManifest
+    if (-not $installedManifest -or -not $PayloadDefinition) {
         return $false
     }
 
-    try {
-        $leftHash = (Get-FileHash -LiteralPath $LeftPath -Algorithm SHA256).Hash
-        $rightHash = (Get-FileHash -LiteralPath $RightPath -Algorithm SHA256).Hash
-        return $leftHash -eq $rightHash
-    } catch {
-        return $false
-    }
-}
-
-function Get-FileSha256 {
-    param(
-        [string]$Path
-    )
-
-    if (-not (Test-Path $Path)) {
-        return $null
-    }
-
-    try {
-        return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
-    } catch {
-        return $null
-    }
-}
-
-function Get-InstalledSetupHash {
-    $setupHash = Get-FileSha256 -Path $installedSetupPath
-    if ($setupHash) {
-        return $setupHash.ToUpperInvariant()
-    }
-
-    if (Test-Path $installedSetupHashPath) {
-        try {
-            $hash = (Get-Content -LiteralPath $installedSetupHashPath -Raw).Trim()
-
-            if ($hash -match "^[A-Fa-f0-9]{64}$") {
-                return $hash.ToUpperInvariant()
-            }
-        } catch {}
-    }
-
-    $batchHash = Get-FileSha256 -Path $installedInstallerPath
-    if ($batchHash) {
-        return $batchHash.ToUpperInvariant()
-    }
-
-    return $null
-}
-
-function Test-InstalledSetupMatches {
-    param(
-        [string]$CandidatePath
-    )
-
-    $candidateHash = Get-FileSha256 -Path $CandidatePath
-    $installedHash = Get-InstalledSetupHash
-
-    if (-not $candidateHash -or -not $installedHash) {
+    if ([string]$installedManifest.version -ne [string]$PayloadDefinition.version) {
         return $false
     }
 
-    return $candidateHash.ToUpperInvariant() -eq $installedHash.ToUpperInvariant()
+    foreach ($property in $PayloadDefinition.files.PSObject.Properties) {
+        $installedProperty = $installedManifest.files.PSObject.Properties[$property.Name]
+        if (-not $installedProperty) {
+            continue
+        }
+
+        if ([string]$installedProperty.Value -ne [string]$property.Value) {
+            return $false
+        }
+    }
+
+    return $true
 }
 
 function Get-UpdateAvailability {
     param(
-        [pscustomobject]$Status,
-        [hashtable]$Ui
+        [pscustomobject]$Status
     )
 
     if (-not $Status.InstalledOk) {
         return $false
     }
 
-    if ($Status.DiscordState -ne "Ready") {
-        return $false
-    }
-
     try {
-        $updateCheckPath = Join-Path $tempDir "AutoVencord-update-check.ps1"
-        New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
-        Download-FreshInstallerPayload -OutFile $updateCheckPath
-
-        return (-not (Test-InstalledSetupMatches -CandidatePath $updateCheckPath))
+        $payloadDefinition = Get-PayloadDefinition
+        return (-not (Test-InstalledPayloadMatches -PayloadDefinition $payloadDefinition))
     } catch {
         return $false
     }
@@ -562,33 +387,15 @@ function Get-MenuEnabledStates {
         [pscustomobject]$Status
     )
 
-    if ($Status.DiscordState -ne "Ready") {
+    if ($Status.DiscordState -ne "DiscordReady") {
         if ($Status.InstalledOk) {
-            return @(
-                $false,
-                $false,
-                $false,
-                $true,
-                $true
-            )
+            return @($false, $false, $true, $true, $true)
         }
 
-        return @(
-            $false,
-            $false,
-            $Status.InstallFolderExists,
-            $false,
-            $true
-        )
+        return @($false, $false, $Status.InstallFolderExists, $false, $true)
     }
 
-    return @(
-        (-not $Status.InstalledOk),
-        $Status.InstalledOk,
-        $true,
-        $Status.InstalledOk,
-        $true
-    )
+    return @($true, $Status.InstalledOk, $true, $Status.InstalledOk, $true)
 }
 
 function Resolve-MenuIndex {
@@ -597,25 +404,13 @@ function Resolve-MenuIndex {
         [bool[]]$EnabledStates
     )
 
-    if (-not $EnabledStates -or $EnabledStates.Length -eq 0) {
-        return 0
+    if ($InitialIndex -ge 0 -and $InitialIndex -lt $EnabledStates.Length -and $EnabledStates[$InitialIndex]) {
+        return $InitialIndex
     }
 
-    $index = [Math]::Min([Math]::Max($InitialIndex, 0), $EnabledStates.Length - 1)
-
-    if ($EnabledStates[$index]) {
-        return $index
-    }
-
-    for ($offset = 1; $offset -lt $EnabledStates.Length; $offset++) {
-        $downIndex = $index + $offset
-        if ($downIndex -lt $EnabledStates.Length -and $EnabledStates[$downIndex]) {
-            return $downIndex
-        }
-
-        $upIndex = $index - $offset
-        if ($upIndex -ge 0 -and $EnabledStates[$upIndex]) {
-            return $upIndex
+    for ($i = 0; $i -lt $EnabledStates.Length; $i++) {
+        if ($EnabledStates[$i]) {
+            return $i
         }
     }
 
@@ -629,101 +424,51 @@ function Set-UpdateMenuStatus {
         [bool]$UpdateAvailable
     )
 
-    if ($Status.DiscordState -ne "Ready") {
-        $value = $Ui.UpdateUnavailable
-        $hint = $Status.DiscordValue
-        $state = "Unavailable"
-    } elseif (-not $Status.InstalledOk) {
-        $value = $Ui.UpdateUnavailable
-        $hint = $Ui.UpdateHintUnavailable
-        $state = "Unavailable"
-    } elseif ($UpdateAvailable) {
-        $value = $Ui.UpdateAvailable
-        $hint = $Ui.UpdateHintAvailable
-        $state = "Available"
-    } else {
-        $value = $Ui.UpdateCurrent
-        $hint = $Ui.UpdateHintCurrent
-        $state = "Current"
+    if ($UpdateAvailable) {
+        $script:UpdateStatusText = "{0}: {1}" -f $Ui.UpdateStatusLabel, $Ui.UpdateHintAvailable
+        $script:UpdateOptionSuffix = $Ui.UpdateAvailableSuffix
+        return
     }
 
-    $Status | Add-Member -MemberType NoteProperty -Name UpdateLabel -Value $Ui.UpdateStatusLabel -Force
-    $Status | Add-Member -MemberType NoteProperty -Name UpdateValue -Value $value -Force
-    $Status | Add-Member -MemberType NoteProperty -Name UpdateHint -Value $hint -Force
-    $Status | Add-Member -MemberType NoteProperty -Name UpdateState -Value $state -Force
-    $Status | Add-Member -MemberType NoteProperty -Name UpdateAvailable -Value $UpdateAvailable -Force
+    if ($Status.InstalledOk) {
+        $script:UpdateStatusText = "{0}: {1}" -f $Ui.UpdateStatusLabel, $Ui.UpdateHintCurrent
+        $script:UpdateOptionSuffix = ""
+        return
+    }
+
+    $script:UpdateStatusText = "{0}: {1}" -f $Ui.UpdateStatusLabel, $Ui.UpdateHintUnavailable
+    $script:UpdateOptionSuffix = ""
 }
 
-function Get-UpdateColor {
+function Write-PaddedLine {
     param(
-        [pscustomobject]$Status
+        [string]$Text = "",
+        [ConsoleColor]$ForegroundColor = [ConsoleColor]::Gray,
+        [int]$Width = 80
     )
 
-    if ($Status.UpdateState -eq "Available") {
-        return [ConsoleColor]::Yellow
-    }
-
-    if ($Status.UpdateState -eq "Current") {
-        return [ConsoleColor]::White
-    }
-
-    return [ConsoleColor]::DarkGray
+    $safeWidth = [Math]::Max(20, $Width)
+    $trimmed = if ($Text.Length -gt $safeWidth) { $Text.Substring(0, $safeWidth) } else { $Text }
+    Write-Host $trimmed.PadRight($safeWidth) -ForegroundColor $ForegroundColor
 }
 
-function Get-MenuItemColor {
+function Write-SelectedLine {
     param(
-        [int]$Index,
-        [pscustomobject]$Status
+        [string]$Text = "",
+        [int]$Width = 80,
+        [ConsoleColor]$ForegroundColor = [ConsoleColor]::Black,
+        [ConsoleColor]$BackgroundColor = [ConsoleColor]::Cyan
     )
 
-    if ($Index -eq 0) {
-        return [ConsoleColor]::Green
-    }
-
-    if ($Index -eq 1) {
-        return Get-UpdateColor -Status $Status
-    }
-
-    if ($Index -eq 3) {
-        return [ConsoleColor]::Red
-    }
-
-    if ($Index -eq 4) {
-        return [ConsoleColor]::White
-    }
-
-    return [ConsoleColor]::Gray
-}
-
-function Get-MenuSelectionBackground {
-    param(
-        [int]$Index,
-        [pscustomobject]$Status
-    )
-
-    if ($Index -eq 0) {
-        return [ConsoleColor]::Green
-    }
-
-    if ($Index -eq 1) {
-        return Get-UpdateColor -Status $Status
-    }
-
-    if ($Index -eq 3) {
-        return [ConsoleColor]::Red
-    }
-
-    if ($Index -eq 4) {
-        return [ConsoleColor]::White
-    }
-
-    return [ConsoleColor]::Cyan
+    $safeWidth = [Math]::Max(20, $Width)
+    $trimmed = if ($Text.Length -gt $safeWidth) { $Text.Substring(0, $safeWidth) } else { $Text }
+    Write-Host $trimmed.PadRight($safeWidth) -ForegroundColor $ForegroundColor -BackgroundColor $BackgroundColor
 }
 
 function Clear-PendingConsoleInput {
     try {
         while ([Console]::KeyAvailable) {
-            [void][Console]::ReadKey($true)
+            [Console]::ReadKey($true) | Out-Null
         }
     } catch {}
 }
@@ -740,103 +485,336 @@ function Render-Menu {
 
     $rawUi = $Host.UI.RawUI
     $width = [Math]::Max(62, $rawUi.WindowSize.Width - 1)
-
     if ($FirstRender) {
         Clear-Host
     }
 
     $rawUi.CursorPosition = New-Object System.Management.Automation.Host.Coordinates 0, 0
-
     Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
     Write-PaddedLine -Text ("{0}" -f $Ui.BannerTitle).PadLeft(([Math]::Floor(($width + $Ui.BannerTitle.Length) / 2))) -ForegroundColor Cyan -Width $width
     Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
     Write-PaddedLine -Text "" -Width $width
     Write-PaddedLine -Text $Ui.BannerHint -ForegroundColor DarkGray -Width $width
     Write-PaddedLine -Text "" -Width $width
-    Write-PaddedLine -Text $Ui.SectionTitle -ForegroundColor Green -Width $width
-    Write-PaddedLine -Text "" -Width $width
+    Write-PaddedLine -Text $Ui.SectionTitle -ForegroundColor White -Width $width
 
-    $installedColor = if ($Status.InstalledOk) { [ConsoleColor]::Green } else { [ConsoleColor]::Yellow }
-    $watchdogColor = if ($Status.WatchdogOk) { [ConsoleColor]::Green } elseif ($Status.RawWatchdogState -eq "NotInstalled") { [ConsoleColor]::Yellow } else { [ConsoleColor]::DarkYellow }
-
+    $installedColor = if ($Status.InstalledOk) { [ConsoleColor]::Green } else { [ConsoleColor]::DarkYellow }
+    $watchdogColor = if ($Status.WatchdogOk) { [ConsoleColor]::Green } else { [ConsoleColor]::DarkYellow }
     Write-PaddedLine -Text ("{0}: {1}" -f $Status.InstalledLabel, $Status.InstalledValue) -ForegroundColor $installedColor -Width $width
     Write-PaddedLine -Text ("{0}: {1}" -f $Status.WatchdogLabel, $Status.WatchdogValue) -ForegroundColor $watchdogColor -Width $width
 
-    if ($Status.DiscordState -ne "Ready") {
-        $discordColor = if ($Status.DiscordState -eq "Missing") { [ConsoleColor]::Red } else { [ConsoleColor]::Yellow }
-        Write-PaddedLine -Text ("{0}: {1}" -f $Status.DiscordLabel, $Status.DiscordValue) -ForegroundColor $discordColor -Width $width
-        if ($Status.DiscordMessage) {
-            Write-PaddedLine -Text $Status.DiscordMessage -ForegroundColor $discordColor -Width $width
-        }
+    if ($Status.DiscordValue) {
+        Write-PaddedLine -Text ("{0}: {1}" -f $Status.DiscordLabel, $Status.DiscordValue) -ForegroundColor DarkYellow -Width $width
+    } else {
+        Write-PaddedLine -Text ("{0}: Ready" -f $Status.DiscordLabel) -ForegroundColor Green -Width $width
     }
 
-    if ($Status.UpdateLabel) {
-        Write-PaddedLine -Text ("{0}: {1}" -f $Status.UpdateLabel, $Status.UpdateValue) -ForegroundColor (Get-UpdateColor -Status $Status) -Width $width
+    if ($Status.DiscordMessage) {
+        Write-PaddedLine -Text $Status.DiscordMessage -ForegroundColor DarkYellow -Width $width
+    } else {
+        Write-PaddedLine -Text $script:UpdateStatusText -ForegroundColor DarkGray -Width $width
     }
 
     Write-PaddedLine -Text "" -Width $width
 
     for ($i = 0; $i -lt $Options.Length; $i++) {
         $label = $Options[$i]
-        $enabled = $EnabledStates[$i]
+        if ($i -eq 1) {
+            $label += $script:UpdateOptionSuffix
+        }
+
         $marker = if ($i -eq $SelectedIndex) { " >>" } else { "   " }
-        $rightHint = if ($i -eq 1 -and $Status.UpdateHint) { $Status.UpdateHint } else { "" }
         $contentWidth = [Math]::Max(20, $width - $marker.Length)
         $left = ("  {0}" -f $label)
-        $right = if ($rightHint) { " " + $rightHint } else { "" }
-
-        if ($right -and ($contentWidth - $right.Length) -ge 18) {
-            $leftWidth = $contentWidth - $right.Length
-            if ($left.Length -gt $leftWidth) {
-                $left = $left.Substring(0, $leftWidth)
-            }
-
-            $line = $left.PadRight($leftWidth) + $right + $marker
-        } else {
-            if ($left.Length -gt $contentWidth) {
-                $left = $left.Substring(0, $contentWidth)
-            }
-
-            $line = $left.PadRight($contentWidth) + $marker
+        if ($left.Length -gt $contentWidth) {
+            $left = $left.Substring(0, $contentWidth)
         }
 
-        $lineColor = Get-MenuItemColor -Index $i -Status $Status
-        $selectedBackground = Get-MenuSelectionBackground -Index $i -Status $Status
-        $selectedForeground = if ($selectedBackground -eq [ConsoleColor]::Red) { [ConsoleColor]::White } else { [ConsoleColor]::Black }
-
-        if (-not $enabled) {
+        $line = $left.PadRight($contentWidth) + $marker
+        if (-not $EnabledStates[$i]) {
             Write-PaddedLine -Text $line -ForegroundColor DarkGray -Width $width
         } elseif ($i -eq $SelectedIndex) {
-            Write-SelectedLine -Text $line -Width $width -ForegroundColor $selectedForeground -BackgroundColor $selectedBackground
+            Write-SelectedLine -Text $line -Width $width -ForegroundColor Black -BackgroundColor Cyan
         } else {
-            Write-PaddedLine -Text $line -ForegroundColor $lineColor -Width $width
+            Write-PaddedLine -Text $line -ForegroundColor White -Width $width
         }
     }
+}
 
+function Show-Menu {
+    param(
+        [hashtable]$Ui,
+        [string[]]$Options,
+        [int]$InitialIndex = 0
+    )
+
+    $firstRender = $true
+    $status = Get-StatusText -Ui $Ui
+    $updateAvailable = Get-UpdateAvailability -Status $status
+    Set-UpdateMenuStatus -Status $status -Ui $Ui -UpdateAvailable $updateAvailable
+    $enabledStates = Get-MenuEnabledStates -Status $status
+    $index = Resolve-MenuIndex -InitialIndex $InitialIndex -EnabledStates $enabledStates
+
+    try {
+        $Host.UI.RawUI.WindowTitle = $windowTitle
+    } catch {}
+
+    Start-Sleep -Milliseconds 150
+    Clear-PendingConsoleInput
+
+    while ($true) {
+        Render-Menu -Ui $Ui -Status $status -Options $Options -EnabledStates $enabledStates -SelectedIndex $index -FirstRender:$firstRender
+        $firstRender = $false
+        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+
+        if ($key.VirtualKeyCode -eq 38) {
+            for ($i = $index - 1; $i -ge 0; $i--) {
+                if ($enabledStates[$i]) {
+                    $index = $i
+                    break
+                }
+            }
+
+            continue
+        }
+
+        if ($key.VirtualKeyCode -eq 40) {
+            for ($i = $index + 1; $i -lt $Options.Length; $i++) {
+                if ($enabledStates[$i]) {
+                    $index = $i
+                    break
+                }
+            }
+
+            continue
+        }
+
+        if ($key.VirtualKeyCode -eq 13 -and $enabledStates[$index]) {
+            return $index
+        }
+
+        if ($key.VirtualKeyCode -eq 27) {
+            return -1
+        }
+    }
+}
+
+function Confirm-InstallSelection {
+    param(
+        [hashtable]$Ui
+    )
+
+    $rawUi = $Host.UI.RawUI
+    $width = [Math]::Max(62, $rawUi.WindowSize.Width - 1)
+    Clear-Host
+    $rawUi.CursorPosition = New-Object System.Management.Automation.Host.Coordinates 0, 0
+    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
+    Write-PaddedLine -Text ("{0}" -f $Ui.BannerTitle).PadLeft(([Math]::Floor(($width + $Ui.BannerTitle.Length) / 2))) -ForegroundColor Cyan -Width $width
+    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
     Write-PaddedLine -Text "" -Width $width
+    Write-PaddedLine -Text ("  " + $Ui.ConfirmInstallTitle) -ForegroundColor Yellow -Width $width
+    Write-PaddedLine -Text ("  " + $Ui.ConfirmInstallEnter) -ForegroundColor Gray -Width $width
+    Write-PaddedLine -Text ("  " + $Ui.ConfirmInstallEsc) -ForegroundColor DarkGray -Width $width
+
+    while ($true) {
+        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        if ($key.VirtualKeyCode -eq 13) { return $true }
+        if ($key.VirtualKeyCode -eq 27) { return $false }
+    }
+}
+
+function Show-ActionResult {
+    param(
+        [hashtable]$Ui,
+        [string]$Message,
+        [ConsoleColor]$Color = [ConsoleColor]::Green
+    )
+
+    $rawUi = $Host.UI.RawUI
+    $width = [Math]::Max(62, $rawUi.WindowSize.Width - 1)
+    Clear-Host
+    $rawUi.CursorPosition = New-Object System.Management.Automation.Host.Coordinates 0, 0
+    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
+    Write-PaddedLine -Text ("{0}" -f $Ui.BannerTitle).PadLeft(([Math]::Floor(($width + $Ui.BannerTitle.Length) / 2))) -ForegroundColor Cyan -Width $width
+    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
     Write-PaddedLine -Text "" -Width $width
+    Write-PaddedLine -Text ("  " + $Message) -ForegroundColor $Color -Width $width
+    Write-PaddedLine -Text ("  " + $Ui.ResultHint) -ForegroundColor DarkGray -Width $width
+
+    Start-Sleep -Milliseconds 150
+    Clear-PendingConsoleInput
+    while ($true) {
+        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        if ($key.VirtualKeyCode -eq 13) { return $true }
+        if ($key.VirtualKeyCode -eq 27) { return $false }
+    }
+}
+
+function Assert-DiscordReady {
+    param(
+        [hashtable]$Ui
+    )
+
+    $discordState = (Get-AutoVencordStatus).Discord
+    if ($discordState.State -eq "DiscordReady") {
+        return
+    }
+
+    if ($discordState.State -eq "DiscordMissing") {
+        throw $Ui.DiscordMissingInstall
+    }
+
+    throw $Ui.DiscordIncompleteMessage
+}
+
+function Get-SetupFailureMessage {
+    param(
+        [hashtable]$Ui,
+        [int]$ExitCode
+    )
+
+    switch ($ExitCode) {
+        10 { return $Ui.ErrorNetwork }
+        20 { return $Ui.DiscordMissingInstall }
+        21 { return $Ui.DiscordIncompleteMessage }
+        30 { return $Ui.ErrorCli }
+        40 { return $Ui.ErrorPatch }
+        50 { return $Ui.ErrorTask }
+        default { return $Ui.ErrorInstall }
+    }
+}
+
+function Invoke-SetupScript {
+    param(
+        [string]$SetupScriptPath,
+        [switch]$PatchNow,
+        [hashtable]$Ui
+    )
+
+    $oldSkipSelfUpdate = $env:AUTOVENCORD_SKIP_SELF_UPDATE
+    $oldNoPause = $env:AUTOVENCORD_NO_PAUSE
+    $sourceBatch = Join-Path $scriptRoot "AutoVencord-OneClick.bat"
+    $sourceCore = Join-Path $scriptRoot "AutoVencord.Core.ps1"
+    $sourcePayloadManifest = Join-Path $scriptRoot "AutoVencord-Payload.json"
+
+    try {
+        $env:AUTOVENCORD_SKIP_SELF_UPDATE = "1"
+        $env:AUTOVENCORD_NO_PAUSE = "1"
+        $setupArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $SetupScriptPath, "-SourceSetupPath", $SetupScriptPath)
+
+        if (Test-Path -LiteralPath $sourceBatch) {
+            $setupArgs += @("-SourceBatPath", $sourceBatch)
+        }
+
+        if (Test-Path -LiteralPath $sourceCore) {
+            $setupArgs += @("-SourceCorePath", $sourceCore)
+        }
+
+        if (Test-Path -LiteralPath $sourcePayloadManifest) {
+            $setupArgs += @("-SourcePayloadManifestPath", $sourcePayloadManifest)
+        }
+
+        if ($PatchNow) {
+            $setupArgs += "-PatchNow"
+        }
+
+        & powershell.exe @setupArgs
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+            throw (Get-SetupFailureMessage -Ui $Ui -ExitCode $exitCode)
+        }
+    } finally {
+        $env:AUTOVENCORD_SKIP_SELF_UPDATE = $oldSkipSelfUpdate
+        $env:AUTOVENCORD_NO_PAUSE = $oldNoPause
+    }
+}
+
+function Invoke-Install {
+    param(
+        [hashtable]$Ui
+    )
+
+    Assert-DiscordReady -Ui $Ui
+    $downloaded = Download-LatestInstaller -Ui $Ui -AllowLocalFallback
+    Invoke-SetupScript -SetupScriptPath $downloaded.SetupPath -PatchNow -Ui $Ui
+}
+
+function Stop-AutoVencordWatchdogForUninstall {
+    param(
+        [hashtable]$Ui
+    )
+
+    Write-Host $Ui.StoppingWatchdog -ForegroundColor Yellow
+    Stop-AutoVencordTask
+
+    try {
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object {
+                ($_.Name -in @("powershell.exe", "pwsh.exe")) -and
+                $_.CommandLine -like "*watchdog.ps1*"
+            } |
+            Where-Object { $_.ProcessId -ne $PID } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    } catch {}
+
+    Start-Sleep -Seconds 1
+}
+
+function Stop-DiscordForVencordUninstall {
+    param(
+        [hashtable]$Ui
+    )
+
+    Write-Host $Ui.ClosingDiscord -ForegroundColor Yellow
+    Get-Process Discord -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    $deadline = (Get-Date).AddSeconds(20)
+
+    while ((Get-Date) -lt $deadline) {
+        if (-not (Get-Process Discord -ErrorAction SilentlyContinue)) {
+            return
+        }
+
+        Start-Sleep -Milliseconds 500
+    }
+}
+
+function Restore-DiscordAsarBackupIfNeeded {
+    param(
+        [hashtable]$Ui
+    )
+
+    $discordState = Get-DiscordState
+    if (-not $discordState.Latest) {
+        return
+    }
+
+    $resources = Join-Path $discordState.Latest.FullName "resources"
+    $appAsar = Join-Path $resources "app.asar"
+    $backupAsar = Join-Path $resources "_app.asar"
+    $patchState = Get-PatchState -AppDir $discordState.Latest
+
+    if (($patchState.State -eq "PatchMissing") -and -not (Test-Path -LiteralPath $backupAsar)) {
+        return
+    }
+
+    if (-not (Test-Path -LiteralPath $backupAsar)) {
+        throw $Ui.MissingAsarBackup
+    }
+
+    Write-Host $Ui.RestoringAsarBackup -ForegroundColor Yellow
+    Copy-Item -LiteralPath $backupAsar -Destination $appAsar -Force
+    Remove-Item -LiteralPath $backupAsar -Force -ErrorAction SilentlyContinue
+
+    $verifiedState = Get-PatchState -AppDir (Get-DiscordState).Latest
+    if ($verifiedState.State -eq "PatchPresent") {
+        throw $Ui.VencordStillPatched
+    }
 }
 
 function Test-CanUninstallVencordPatch {
-    $discord = Get-DiscordPreflight
-    return ((Test-Path $installedCliPath) -and $discord.State -eq "Ready")
-}
-
-function Get-UninstallMenuItemColor {
-    param(
-        [int]$Index,
-        [bool[]]$EnabledStates
-    )
-
-    if (-not $EnabledStates[$Index]) {
-        return [ConsoleColor]::DarkGray
-    }
-
-    if ($Index -eq 2) {
-        return [ConsoleColor]::White
-    }
-
-    return [ConsoleColor]::Red
+    $status = Get-AutoVencordStatus
+    $context = Get-AutoVencordContext
+    return ((Test-Path -LiteralPath $context.InstallerPath) -and $status.Discord.State -eq "DiscordReady")
 }
 
 function Render-UninstallMenu {
@@ -850,13 +828,11 @@ function Render-UninstallMenu {
 
     $rawUi = $Host.UI.RawUI
     $width = [Math]::Max(62, $rawUi.WindowSize.Width - 1)
-
     if ($FirstRender) {
         Clear-Host
     }
 
     $rawUi.CursorPosition = New-Object System.Management.Automation.Host.Coordinates 0, 0
-
     Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
     Write-PaddedLine -Text ("{0}" -f $Ui.BannerTitle).PadLeft(([Math]::Floor(($width + $Ui.BannerTitle.Length) / 2))) -ForegroundColor Cyan -Width $width
     Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
@@ -872,32 +848,22 @@ function Render-UninstallMenu {
     }
 
     for ($i = 0; $i -lt $Options.Length; $i++) {
-        $label = $Options[$i]
-        $enabled = $EnabledStates[$i]
         $marker = if ($i -eq $SelectedIndex) { " >>" } else { "   " }
         $contentWidth = [Math]::Max(20, $width - $marker.Length)
-        $left = ("  {0}" -f $label)
-
+        $left = ("  {0}" -f $Options[$i])
         if ($left.Length -gt $contentWidth) {
             $left = $left.Substring(0, $contentWidth)
         }
 
         $line = $left.PadRight($contentWidth) + $marker
-        $lineColor = Get-UninstallMenuItemColor -Index $i -EnabledStates $EnabledStates
-        $selectedBackground = if ($i -eq 2) { [ConsoleColor]::White } else { [ConsoleColor]::Red }
-        $selectedForeground = if ($selectedBackground -eq [ConsoleColor]::White) { [ConsoleColor]::Black } else { [ConsoleColor]::White }
-
-        if (-not $enabled) {
+        if (-not $EnabledStates[$i]) {
             Write-PaddedLine -Text $line -ForegroundColor DarkGray -Width $width
         } elseif ($i -eq $SelectedIndex) {
-            Write-SelectedLine -Text $line -Width $width -ForegroundColor $selectedForeground -BackgroundColor $selectedBackground
+            Write-SelectedLine -Text $line -Width $width -ForegroundColor White -BackgroundColor Red
         } else {
-            Write-PaddedLine -Text $line -ForegroundColor $lineColor -Width $width
+            Write-PaddedLine -Text $line -ForegroundColor Red -Width $width
         }
     }
-
-    Write-PaddedLine -Text "" -Width $width
-    Write-PaddedLine -Text "" -Width $width
 }
 
 function Show-UninstallMenu {
@@ -911,7 +877,6 @@ function Show-UninstallMenu {
     $firstRender = $true
 
     while ($true) {
-        $Host.UI.RawUI.WindowTitle = $windowTitle
         Render-UninstallMenu -Ui $Ui -Options $options -EnabledStates $enabledStates -SelectedIndex $index -FirstRender:$firstRender
         $firstRender = $false
         Clear-PendingConsoleInput
@@ -943,336 +908,14 @@ function Show-UninstallMenu {
     }
 }
 
-function Stop-AutoVencordWatchdogForUninstall {
-    param(
-        [hashtable]$Ui
-    )
-
-    Write-Host $Ui.StoppingWatchdog -ForegroundColor Yellow
-
-    if (Get-Command Stop-ScheduledTask -ErrorAction SilentlyContinue) {
-        Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-    }
-
-    & schtasks.exe /End /TN $taskName 2>$null | Out-Null
-
-    try {
-        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-            Where-Object {
-                ($_.Name -in @("powershell.exe", "pwsh.exe")) -and
-                (
-                    ($_.CommandLine -like "*AutoVencord*" -and $_.CommandLine -like "*watchdog.ps1*") -or
-                    ($_.CommandLine -like "*vencord-watchdog.ps1*")
-                )
-            } |
-            Where-Object { $_.ProcessId -ne $PID } |
-            ForEach-Object {
-                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-            }
-    } catch {}
-
-    Start-Sleep -Seconds 1
-}
-
-function Stop-DiscordForVencordUninstall {
-    param(
-        [hashtable]$Ui
-    )
-
-    Write-Host $Ui.ClosingDiscord -ForegroundColor Yellow
-
-    Get-Process Discord -ErrorAction SilentlyContinue |
-        Stop-Process -Force -ErrorAction SilentlyContinue
-
-    $deadline = (Get-Date).AddSeconds(20)
-
-    while ((Get-Date) -lt $deadline) {
-        if (-not (Get-Process Discord -ErrorAction SilentlyContinue)) {
-            return
-        }
-
-        Start-Sleep -Milliseconds 500
-    }
-}
-
-function Test-VencordPatchPresent {
-    param(
-        $AppDir
-    )
-
-    if (-not $AppDir) {
-        return $false
-    }
-
-    $resources = Join-Path $AppDir.FullName "resources"
-    $appAsar = Join-Path $resources "app.asar"
-    $backupAsar = Join-Path $resources "_app.asar"
-
-    if (-not (Test-Path $appAsar)) {
-        return $false
-    }
-
-    $appAsarItem = Get-Item $appAsar -ErrorAction SilentlyContinue
-    $hasVencordLoader = $false
-
-    try {
-        $bytesToRead = [Math]::Min(4096, [int]$appAsarItem.Length)
-        $buffer = New-Object byte[] $bytesToRead
-        $stream = [System.IO.File]::Open($appAsar, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
-        try {
-            [void]$stream.Read($buffer, 0, $bytesToRead)
-        } finally {
-            $stream.Close()
-        }
-
-        $text = [System.Text.Encoding]::UTF8.GetString($buffer)
-        $hasVencordLoader = ($text -match "patcher\.js" -or $text -match "Roaming\\Vencord")
-    } catch {}
-
-    return ((Test-Path $backupAsar) -and ($appAsarItem.Length -lt 4096 -or $hasVencordLoader))
-}
-
-function Restore-DiscordAsarBackupIfNeeded {
-    param(
-        [hashtable]$Ui
-    )
-
-    $latest = Get-LatestDiscordInstall
-
-    if (-not (Test-VencordPatchPresent -AppDir $latest)) {
-        return
-    }
-
-    $resources = Join-Path $latest.FullName "resources"
-    $appAsar = Join-Path $resources "app.asar"
-    $backupAsar = Join-Path $resources "_app.asar"
-
-    if (-not (Test-Path $backupAsar)) {
-        throw $Ui.MissingAsarBackup
-    }
-
-    Write-Host $Ui.RestoringAsarBackup -ForegroundColor Yellow
-    Copy-Item -LiteralPath $backupAsar -Destination $appAsar -Force
-    Remove-Item -LiteralPath $backupAsar -Force -ErrorAction SilentlyContinue
-
-    $latest = Get-LatestDiscordInstall
-
-    if (Test-VencordPatchPresent -AppDir $latest) {
-        throw $Ui.VencordStillPatched
-    }
-}
-
-function Confirm-InstallSelection {
-    param(
-        [hashtable]$Ui
-    )
-
-    $rawUi = $Host.UI.RawUI
-    $width = [Math]::Max(62, $rawUi.WindowSize.Width - 1)
-
-    Clear-Host
-    $rawUi.CursorPosition = New-Object System.Management.Automation.Host.Coordinates 0, 0
-
-    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
-    Write-PaddedLine -Text ("{0}" -f $Ui.BannerTitle).PadLeft(([Math]::Floor(($width + $Ui.BannerTitle.Length) / 2))) -ForegroundColor Cyan -Width $width
-    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
-    Write-PaddedLine -Text "" -Width $width
-    Write-PaddedLine -Text ("  " + $Ui.ConfirmInstallTitle) -ForegroundColor Yellow -Width $width
-    Write-PaddedLine -Text ("  " + $Ui.ConfirmInstallEnter) -ForegroundColor Gray -Width $width
-    Write-PaddedLine -Text ("  " + $Ui.ConfirmInstallEsc) -ForegroundColor DarkGray -Width $width
-    Write-PaddedLine -Text "" -Width $width
-
-    while ($true) {
-        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-
-        if ($key.VirtualKeyCode -eq 13) {
-            return $true
-        }
-
-        if ($key.VirtualKeyCode -eq 27) {
-            return $false
-        }
-    }
-}
-
-function Show-ActionResult {
-    param(
-        [hashtable]$Ui,
-        [string]$Message,
-        [ConsoleColor]$Color = [ConsoleColor]::Green
-    )
-
-    $rawUi = $Host.UI.RawUI
-    $width = [Math]::Max(62, $rawUi.WindowSize.Width - 1)
-
-    Clear-Host
-    $rawUi.CursorPosition = New-Object System.Management.Automation.Host.Coordinates 0, 0
-
-    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
-    Write-PaddedLine -Text ("{0}" -f $Ui.BannerTitle).PadLeft(([Math]::Floor(($width + $Ui.BannerTitle.Length) / 2))) -ForegroundColor Cyan -Width $width
-    Write-PaddedLine -Text ("=" * $width) -ForegroundColor DarkCyan -Width $width
-    Write-PaddedLine -Text "" -Width $width
-    Write-PaddedLine -Text ("  " + $Message) -ForegroundColor $Color -Width $width
-    Write-PaddedLine -Text ("  " + $Ui.ResultHint) -ForegroundColor DarkGray -Width $width
-    Write-PaddedLine -Text "" -Width $width
-
-    Start-Sleep -Milliseconds 150
-    Clear-PendingConsoleInput
-
-    while ($true) {
-        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-
-        if ($key.VirtualKeyCode -eq 13) {
-            return $true
-        }
-
-        if ($key.VirtualKeyCode -eq 27) {
-            return $false
-        }
-    }
-}
-
-function Download-LatestInstaller {
-    param(
-        [hashtable]$Ui,
-        [switch]$AllowLocalFallback
-    )
-
-    New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
-    Write-Host $Ui.Downloading -ForegroundColor Cyan
-    Download-FreshInstallerPayload -OutFile $setupPath -AllowLocalFallback:$AllowLocalFallback
-    return $setupPath
-}
-
-function Assert-DiscordReady {
-    param(
-        [hashtable]$Ui
-    )
-
-    $discord = Get-DiscordPreflight
-
-    if ($discord.State -eq "Ready") {
-        return
-    }
-
-    if ($discord.State -eq "Missing") {
-        throw $Ui.DiscordMissingInstall
-    }
-
-    throw $Ui.DiscordIncompleteMessage
-}
-
-function Invoke-SetupScript {
-    param(
-        [string]$SetupScriptPath,
-        [switch]$PatchNow
-    )
-
-    $oldSkipSelfUpdate = $env:AUTOVENCORD_SKIP_SELF_UPDATE
-    $oldNoPause = $env:AUTOVENCORD_NO_PAUSE
-
-    try {
-        $env:AUTOVENCORD_SKIP_SELF_UPDATE = "1"
-        $env:AUTOVENCORD_NO_PAUSE = "1"
-        $setupArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $SetupScriptPath, "-SourceSetupPath", $SetupScriptPath)
-
-        if ($PatchNow) {
-            $setupArgs += "-PatchNow"
-        }
-
-        & powershell.exe @setupArgs
-        $exitCode = $LASTEXITCODE
-
-        if ($exitCode -ne 0) {
-            throw "AutoVencord installer failed with exit code $exitCode"
-        }
-    } finally {
-        $env:AUTOVENCORD_SKIP_SELF_UPDATE = $oldSkipSelfUpdate
-        $env:AUTOVENCORD_NO_PAUSE = $oldNoPause
-    }
-}
-
-function Show-Menu {
-    param(
-        [hashtable]$Ui,
-        [string[]]$Options,
-        [int]$InitialIndex = 0
-    )
-
-    $firstRender = $true
-    $status = Get-StatusText -Ui $Ui
-    $updateAvailable = Get-UpdateAvailability -Status $status -Ui $Ui
-    Set-UpdateMenuStatus -Status $status -Ui $Ui -UpdateAvailable $updateAvailable
-    $menuOptions = $Options
-
-    $enabledStates = Get-MenuEnabledStates -Status $status
-    $index = Resolve-MenuIndex -InitialIndex $InitialIndex -EnabledStates $enabledStates
-
-    try {
-        $Host.UI.RawUI.WindowTitle = $windowTitle
-    } catch {}
-
-    Start-Sleep -Milliseconds 150
-    Clear-PendingConsoleInput
-
-    while ($true) {
-        Render-Menu -Ui $Ui -Status $status -Options $menuOptions -EnabledStates $enabledStates -SelectedIndex $index -FirstRender $firstRender
-        $firstRender = $false
-
-        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-
-        if ($key.VirtualKeyCode -eq 38) {
-            for ($i = $index - 1; $i -ge 0; $i--) {
-                if ($enabledStates[$i]) {
-                    $index = $i
-                    break
-                }
-            }
-
-            continue
-        }
-
-        if ($key.VirtualKeyCode -eq 40) {
-            for ($i = $index + 1; $i -lt $Options.Length; $i++) {
-                if ($enabledStates[$i]) {
-                    $index = $i
-                    break
-                }
-            }
-
-            continue
-        }
-
-        if ($key.VirtualKeyCode -eq 13) {
-            if ($enabledStates[$index]) {
-                return $index
-            }
-        }
-
-        if ($key.VirtualKeyCode -eq 27) {
-            return -1
-        }
-    }
-}
-
-function Invoke-Install {
-    param(
-        [hashtable]$Ui
-    )
-
-    Assert-DiscordReady -Ui $Ui
-    $downloadedInstallerPath = Download-LatestInstaller -Ui $Ui -AllowLocalFallback
-    Invoke-SetupScript -SetupScriptPath $downloadedInstallerPath -PatchNow
-}
-
 function Invoke-VencordPatchUninstall {
     param(
         [hashtable]$Ui
     )
 
     Assert-DiscordReady -Ui $Ui
-
-    if (-not (Test-Path $installedCliPath)) {
+    $context = Get-AutoVencordContext
+    if (-not (Test-Path -LiteralPath $context.InstallerPath)) {
         throw $Ui.UninstallBothUnavailable
     }
 
@@ -1280,64 +923,16 @@ function Invoke-VencordPatchUninstall {
     Stop-DiscordForVencordUninstall -Ui $Ui
     Write-Host $Ui.UninstallingVencord -ForegroundColor Yellow
 
-    New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
-    $stdoutPath = Join-Path $tempDir ("vencord-uninstall-{0}.out.log" -f ([guid]::NewGuid().ToString("N")))
-    $stderrPath = Join-Path $tempDir ("vencord-uninstall-{0}.err.log" -f ([guid]::NewGuid().ToString("N")))
-    $timeoutMs = 180000
-    $pollMs = 500
-    $elapsedMs = 0
-
-    $process = Start-Process -FilePath $installedCliPath `
-        -ArgumentList @("-uninstall", "-location", $discordRoot) `
-        -PassThru `
-        -NoNewWindow `
-        -RedirectStandardOutput $stdoutPath `
-        -RedirectStandardError $stderrPath
-
-    while (-not $process.HasExited -and $elapsedMs -lt $timeoutMs) {
-        Start-Sleep -Milliseconds $pollMs
-        $elapsedMs += $pollMs
-
-        if (($elapsedMs % 2500) -eq 0) {
-            Write-Host "." -NoNewline -ForegroundColor DarkGray
-        }
-    }
-
-    $stdout = if (Test-Path $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue } else { "" }
-    $stderr = if (Test-Path $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue } else { "" }
-    $combinedOutput = (($stdout, $stderr) -join "`n")
+    $result = Invoke-VencordCliAction -InstallerPath $context.InstallerPath -Action "uninstall" -DiscordRoot $context.DiscordRoot -TimeoutSeconds 180 -LogPhase "UNINSTALL"
+    $combinedOutput = ($result.Output -join "`n")
     $reportedSuccess = ($combinedOutput -match "Successfully unpatched" -or $combinedOutput -match "Success")
 
-    if (-not $process.HasExited) {
-        try {
-            $process.Kill()
-        } catch {}
+    if ($combinedOutput) {
+        Write-Host $combinedOutput.TrimEnd()
     }
 
-    try {
-        $process.Refresh()
-        $exitCode = if ($process.HasExited) { $process.ExitCode } else { $null }
-    } catch {
-        $exitCode = $null
-    }
-
-    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
-    Write-Host ""
-
-    if ($stdout) {
-        Write-Host $stdout.TrimEnd()
-    }
-
-    if ($stderr) {
-        Write-Host $stderr.TrimEnd() -ForegroundColor Yellow
-    }
-
-    if (-not $process.HasExited -and -not $reportedSuccess) {
-        throw "Vencord CLI uninstall timed out."
-    }
-
-    if ($null -ne $exitCode -and $exitCode -ne 0 -and -not $reportedSuccess) {
-        throw "Vencord CLI uninstall failed with exit code $exitCode."
+    if (-not $result.Success -and -not $reportedSuccess) {
+        throw "Vencord CLI uninstall failed with exit code $($result.ExitCode)."
     }
 
     Restore-DiscordAsarBackupIfNeeded -Ui $Ui
@@ -1349,17 +944,17 @@ function Invoke-Uninstall {
         [hashtable]$Ui
     )
 
-    if (-not (Test-Path $uninstallPath)) {
+    $context = Get-AutoVencordContext
+    if (-not (Test-Path -LiteralPath $context.UninstallPath)) {
         Write-Host $Ui.MissingUninstall -ForegroundColor Yellow
         return
     }
 
     Write-Host $Ui.RunningUninstall -ForegroundColor Yellow
     $oldNoPause = $env:AUTOVENCORD_NO_PAUSE
-
     try {
         $env:AUTOVENCORD_NO_PAUSE = "1"
-        & $uninstallPath
+        & $context.UninstallPath
         $exitCode = $LASTEXITCODE
     } finally {
         $env:AUTOVENCORD_NO_PAUSE = $oldNoPause
@@ -1377,14 +972,14 @@ function Invoke-Update {
 
     Assert-DiscordReady -Ui $Ui
     Write-Host $Ui.Updating -ForegroundColor Cyan
-    $downloadedInstallerPath = Download-LatestInstaller -Ui $Ui
+    $downloaded = Download-LatestInstaller -Ui $Ui -AllowLocalFallback
 
-    if (Test-InstalledSetupMatches -CandidatePath $downloadedInstallerPath) {
+    if (Test-InstalledPayloadMatches -PayloadDefinition $downloaded.PayloadDefinition) {
         Write-Host $Ui.AlreadyLatest -ForegroundColor Green
         return $false
     }
 
-    Invoke-SetupScript -SetupScriptPath $downloadedInstallerPath -PatchNow
+    Invoke-SetupScript -SetupScriptPath $downloaded.SetupPath -PatchNow -Ui $Ui
     return $true
 }
 
@@ -1428,7 +1023,6 @@ while ($true) {
 
     if ($selection -eq 2) {
         Open-InstallFolder
-
         if ($autoAction) {
             break
         }
@@ -1437,44 +1031,51 @@ while ($true) {
     }
 
     Clear-Host
+    try {
+        if ($selection -eq 0) {
+            Invoke-Install -Ui $ui
+            if (-not $autoAction) {
+                if (Show-ActionResult -Ui $ui -Message $ui.InstallDone -Color Green) {
+                    continue
+                }
+            }
+        } elseif ($selection -eq 1) {
+            $updateApplied = Invoke-Update -Ui $ui
+            if (-not $autoAction) {
+                $updateMessage = if ($updateApplied) { $ui.UpdateDone } else { $ui.AlreadyLatest }
+                if (Show-ActionResult -Ui $ui -Message $updateMessage -Color Green) {
+                    continue
+                }
+            }
+        } elseif ($selection -eq 3) {
+            if (-not $autoAction) {
+                $uninstallSelection = Show-UninstallMenu -Ui $ui
+                $selectedIndex = 3
+                if ($uninstallSelection -eq 2) {
+                    continue
+                }
 
-    if ($selection -eq 0) {
-        Invoke-Install -Ui $ui
-        if (-not $autoAction) {
-            if (Show-ActionResult -Ui $ui -Message $ui.InstallDone -Color Green) {
-                continue
+                Clear-Host
+                if ($uninstallSelection -eq 1) {
+                    Invoke-VencordPatchUninstall -Ui $ui
+                }
+            }
+
+            Invoke-Uninstall -Ui $ui
+            if (-not $autoAction) {
+                if (Show-ActionResult -Ui $ui -Message $ui.UninstallDone -Color Green) {
+                    continue
+                }
             }
         }
-    } elseif ($selection -eq 1) {
-        $updateApplied = Invoke-Update -Ui $ui
-
+    } catch {
+        $message = $_.Exception.Message
         if (-not $autoAction) {
-            $updateMessage = if ($updateApplied) { $ui.UpdateDone } else { $ui.AlreadyLatest }
-            if (Show-ActionResult -Ui $ui -Message $updateMessage -Color Green) {
+            if (Show-ActionResult -Ui $ui -Message $message -Color Red) {
                 continue
             }
-        }
-    } elseif ($selection -eq 3) {
-        if (-not $autoAction) {
-            $uninstallSelection = Show-UninstallMenu -Ui $ui
-            $selectedIndex = 3
-
-            if ($uninstallSelection -eq 2) {
-                continue
-            }
-
-            Clear-Host
-
-            if ($uninstallSelection -eq 1) {
-                Invoke-VencordPatchUninstall -Ui $ui
-            }
-        }
-
-        Invoke-Uninstall -Ui $ui
-        if (-not $autoAction) {
-            if (Show-ActionResult -Ui $ui -Message $ui.UninstallDone -Color Green) {
-                continue
-            }
+        } else {
+            throw
         }
     }
 

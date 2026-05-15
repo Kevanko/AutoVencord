@@ -1,28 +1,21 @@
-﻿param(
+param(
     [string]$SourceBatPath,
     [string]$SourceSetupPath,
+    [string]$SourceCorePath,
+    [string]$SourcePayloadManifestPath,
     [switch]$PatchNow
 )
 
 $ErrorActionPreference = "Stop"
 
+$payloadVersion = "2026.05.15.1"
+$payloadRef = "main"
 $baseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
-$installerPath = Join-Path $baseDir "VencordInstallerCli.exe"
-$installerBatchCopyPath = Join-Path $baseDir "AutoVencord-OneClick.bat"
-$installerSetupCopyPath = Join-Path $baseDir "AutoVencord-Setup.ps1"
-$installerSetupHashPath = Join-Path $baseDir "AutoVencord-Setup.sha256"
-$watchdogPath = Join-Path $baseDir "watchdog.ps1"
-$uninstallPath = Join-Path $baseDir "uninstall.bat"
 $taskName = "AutoVencord Watchdog"
-$discordRoot = Join-Path $env:LOCALAPPDATA "Discord"
 $downloadUrl = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli.exe"
-$logPath = Join-Path $baseDir "last-action.log"
-$patchTimeoutSeconds = 180
-
-function Write-SetupLog($message) {
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Add-Content -Path $logPath -Value "[$timestamp] SETUP: $message"
-}
+$scriptRoot = if ($MyInvocation.MyCommand.Path) { Split-Path -Parent $MyInvocation.MyCommand.Path } else { $PWD.Path }
+$tempDir = Join-Path $env:TEMP "AutoVencord"
+$bootstrapCorePath = Join-Path $tempDir "AutoVencord.Core.ps1"
 
 function Enable-Tls12IfAvailable {
     try {
@@ -30,782 +23,234 @@ function Enable-Tls12IfAvailable {
     } catch {}
 }
 
-function Download-File($url, $outFile) {
-    Enable-Tls12IfAvailable
+function Invoke-BootstrapDownload {
+    param(
+        [string[]]$Urls,
+        [string]$DestinationPath,
+        [scriptblock]$ValidationScript
+    )
 
-    if (Get-Command Invoke-WebRequest -ErrorAction SilentlyContinue) {
-        Invoke-WebRequest -UseBasicParsing $url -OutFile $outFile
-        return
+    Enable-Tls12IfAvailable
+    $directory = Split-Path -Parent $DestinationPath
+    if ($directory) {
+        New-Item -ItemType Directory -Force -Path $directory | Out-Null
     }
 
-    $client = New-Object System.Net.WebClient
-    $client.DownloadFile($url, $outFile)
+    $lastError = $null
+
+    foreach ($url in $Urls) {
+        $tempPath = "{0}.{1}.tmp" -f $DestinationPath, ([guid]::NewGuid().ToString("N"))
+        try {
+            if (Get-Command Invoke-WebRequest -ErrorAction SilentlyContinue) {
+                Invoke-WebRequest -UseBasicParsing $url -OutFile $tempPath
+            } else {
+                $client = New-Object System.Net.WebClient
+                $client.DownloadFile($url, $tempPath)
+            }
+
+            if ($ValidationScript -and -not (& $ValidationScript $tempPath)) {
+                throw "Downloaded file did not pass validation."
+            }
+
+            Move-Item -LiteralPath $tempPath -Destination $DestinationPath -Force
+            return $true
+        } catch {
+            $lastError = $_
+        } finally {
+            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    if ($lastError) {
+        throw $lastError
+    }
+
+    throw "Unable to download required bootstrap file."
 }
 
-function Test-WindowsExecutable {
+function Test-CorePayload {
     param(
         [string]$Path
     )
 
-    if (-not (Test-Path $Path)) {
+    if (-not (Test-Path -LiteralPath $Path)) {
         return $false
     }
 
     try {
-        $item = Get-Item -LiteralPath $Path
-        if ($item.Length -lt 102400) {
-            return $false
-        }
-
-        $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
-        try {
-            $first = $stream.ReadByte()
-            $second = $stream.ReadByte()
-            return ($first -eq 0x4D -and $second -eq 0x5A)
-        } finally {
-            $stream.Close()
-        }
+        $content = Get-Content -LiteralPath $Path -Raw
+        return ($content.Contains("Get-AutoVencordPayloadVersion") -and $content.Contains($payloadVersion))
     } catch {
         return $false
     }
 }
 
-function Invoke-SchtasksSafe {
+function Get-PayloadCandidateUrls {
     param(
-        [string[]]$Arguments,
-        [switch]$IgnoreExitCode
+        [string]$FileName
     )
 
-    $originalErrorActionPreference = $ErrorActionPreference
-    $originalPreferenceExists = Test-Path variable:PSNativeCommandUseErrorActionPreference
-    if ($originalPreferenceExists) {
-        $originalPreference = $PSNativeCommandUseErrorActionPreference
-    }
-
-    try {
-        $ErrorActionPreference = "Continue"
-
-        if ($originalPreferenceExists) {
-            $PSNativeCommandUseErrorActionPreference = $false
-        }
-
-        $output = & schtasks.exe @Arguments 2>&1
-        $exitCode = $LASTEXITCODE
-
-        return [pscustomobject]@{
-            Output = @($output)
-            ExitCode = $exitCode
-        }
-    } catch {
-        return [pscustomobject]@{
-            Output = @($_.Exception.Message)
-            ExitCode = 1
-        }
-    } finally {
-        $ErrorActionPreference = $originalErrorActionPreference
-
-        if ($originalPreferenceExists) {
-            $PSNativeCommandUseErrorActionPreference = $originalPreference
-        }
-    }
+    return @(
+        "https://raw.githubusercontent.com/Kevanko/AutoVencord/$payloadRef/${FileName}",
+        "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/${FileName}",
+        "https://github.com/Kevanko/AutoVencord/raw/main/${FileName}",
+        "https://github.com/Kevanko/AutoVencord/raw/main/${FileName}?raw=1"
+    )
 }
 
-function Stop-ExistingTask {
-    if (Get-Command Stop-ScheduledTask -ErrorAction SilentlyContinue) {
-        Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
+function Initialize-CoreModule {
+    $candidateRoots = @($scriptRoot)
+    if ($SourceSetupPath) { $candidateRoots += (Split-Path -Parent $SourceSetupPath) }
+    if ($SourceCorePath) { $candidateRoots += (Split-Path -Parent $SourceCorePath) }
+    if ($SourcePayloadManifestPath) { $candidateRoots += (Split-Path -Parent $SourcePayloadManifestPath) }
+    if ($SourceBatPath) { $candidateRoots += (Split-Path -Parent $SourceBatPath) }
+    $candidateRoots = $candidateRoots | Where-Object { $_ } | Select-Object -Unique
+
+    $localCoreCandidates = @(
+        foreach ($root in $candidateRoots) {
+            Join-Path $root "AutoVencord.Core.ps1"
+        }
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
+
+    foreach ($candidate in $localCoreCandidates) {
+        return $candidate
     }
 
-    $null = Invoke-SchtasksSafe -Arguments @("/End", "/TN", $taskName) -IgnoreExitCode
+    Invoke-BootstrapDownload -Urls (Get-PayloadCandidateUrls -FileName "AutoVencord.Core.ps1") -DestinationPath $bootstrapCorePath -ValidationScript ${function:Test-CorePayload}
+    return $bootstrapCorePath
 }
 
-function Install-Task {
+$resolvedCorePath = Initialize-CoreModule
+. $resolvedCorePath
+Set-AutoVencordContext -BaseDir $baseDir -TaskName $taskName | Out-Null
+$exitCodes = Get-AutoVencordExitCodes
+
+function Get-LocalPayloadFile {
     param(
-        [string]$TaskName,
-        [string]$ScriptPath
+        [string]$FileName
     )
 
-    $commandArgument = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ScriptPath`""
+    $candidates = @()
 
-    Stop-ExistingTask
-
-    if (Get-Command Register-ScheduledTask -ErrorAction SilentlyContinue) {
-        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-
-        $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $commandArgument
-        $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-        $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
-        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 3650)
-
-        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-        try {
-            Start-ScheduledTask -TaskName $TaskName -ErrorAction Stop
-        } catch {
-            Write-SetupLog "Task was created but immediate start failed: $($_.Exception.Message)"
-        }
-
-        return
+    if ($FileName -eq "AutoVencord-OneClick.bat" -and $SourceBatPath) {
+        $candidates += $SourceBatPath
     }
 
-    $null = Invoke-SchtasksSafe -Arguments @("/Delete", "/TN", $TaskName, "/F") -IgnoreExitCode
-
-    $createResult = Invoke-SchtasksSafe -Arguments @("/Create", "/F", "/SC", "ONLOGON", "/TN", $TaskName, "/TR", "powershell.exe $commandArgument")
-    if ($createResult.ExitCode -ne 0) {
-        throw "schtasks /Create failed with exit code $($createResult.ExitCode): $($createResult.Output -join ' ')"
+    if ($FileName -eq "AutoVencord-Setup.ps1" -and $SourceSetupPath) {
+        $candidates += $SourceSetupPath
     }
 
-    $runResult = Invoke-SchtasksSafe -Arguments @("/Run", "/TN", $TaskName)
-    if ($runResult.ExitCode -ne 0) {
-        Write-SetupLog "Task was created but schtasks /Run failed with exit code $($runResult.ExitCode): $($runResult.Output -join ' ')"
-    }
-}
-
-function Get-DiscordAppVersion($directoryName) {
-    $raw = $directoryName -replace "^app-", ""
-
-    try {
-        return [version]$raw
-    } catch {
-        return [version]"0.0.0.0"
-    }
-}
-
-function Get-LatestDiscordInstall {
-    if (-not (Test-Path $discordRoot)) {
-        return $null
+    if ($FileName -eq "AutoVencord.Core.ps1" -and $SourceCorePath) {
+        $candidates += $SourceCorePath
     }
 
-    $latest = $null
-    $latestVersion = [version]"0.0.0.0"
-    $latestWriteTime = [datetime]::MinValue
+    if ($FileName -eq "AutoVencord-Payload.json" -and $SourcePayloadManifestPath) {
+        $candidates += $SourcePayloadManifestPath
+    }
 
-    $dirs = Get-ChildItem $discordRoot -ErrorAction SilentlyContinue |
-        Where-Object { $_.PSIsContainer -and $_.Name -like "app-*" }
+    $candidateRoots = @($scriptRoot)
+    if ($SourceSetupPath) { $candidateRoots += (Split-Path -Parent $SourceSetupPath) }
+    if ($SourceCorePath) { $candidateRoots += (Split-Path -Parent $SourceCorePath) }
+    if ($SourcePayloadManifestPath) { $candidateRoots += (Split-Path -Parent $SourcePayloadManifestPath) }
+    if ($SourceBatPath) { $candidateRoots += (Split-Path -Parent $SourceBatPath) }
+    $candidateRoots = $candidateRoots | Where-Object { $_ } | Select-Object -Unique
 
-    foreach ($dir in $dirs) {
-        $version = Get-DiscordAppVersion $dir.Name
+    foreach ($root in $candidateRoots) {
+        $candidates += (Join-Path $root $FileName)
+    }
 
-        if (($version -gt $latestVersion) -or ($version -eq $latestVersion -and $dir.LastWriteTimeUtc -gt $latestWriteTime)) {
-            $latest = $dir
-            $latestVersion = $version
-            $latestWriteTime = $dir.LastWriteTimeUtc
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+            return $candidate
         }
     }
 
-    return $latest
-}
-
-function Test-DiscordUpdaterActive {
-    $processes = Get-Process -ErrorAction SilentlyContinue |
-        Where-Object { @("Update", "Squirrel") -contains $_.ProcessName }
-
-    foreach ($process in $processes) {
-        $path = $null
-
-        try {
-            $path = $process.Path
-        } catch {}
-
-        if ($path -and ($path.StartsWith($discordRoot, [System.StringComparison]::OrdinalIgnoreCase) -or $path -like "*\SquirrelTemp\*")) {
-            return $true
-        }
-    }
-
-    $squirrelTemp = Join-Path $discordRoot "SquirrelTemp"
-    if (Test-Path $squirrelTemp) {
-        try {
-            if ((Get-Item $squirrelTemp).LastWriteTimeUtc -gt (Get-Date).ToUniversalTime().AddMinutes(-5)) {
-                return $true
-            }
-        } catch {}
-    }
-
-    return $false
-}
-
-function Test-FileStable($path) {
-    if (-not (Test-Path $path)) {
-        return $false
-    }
-
-    try {
-        $first = Get-Item $path
-        if ($first.Length -le 0) {
-            return $false
-        }
-
-        Start-Sleep -Seconds 2
-
-        $second = Get-Item $path
-        if ($first.Length -ne $second.Length -or $first.LastWriteTimeUtc -ne $second.LastWriteTimeUtc) {
-            return $false
-        }
-
-        $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
-        $stream.Close()
-        return $true
-    } catch {
-        return $false
-    }
-}
-
-function Test-DiscordInstallReady($appDir) {
-    if (-not $appDir) {
-        return $false
-    }
-
-    $resources = Join-Path $appDir.FullName "resources"
-    $appAsar = Join-Path $resources "app.asar"
-    $buildInfo = Join-Path $resources "build_info.json"
-
-    if (-not (Test-Path $resources) -or -not (Test-Path $appAsar) -or -not (Test-Path $buildInfo)) {
-        return $false
-    }
-
-    return Test-FileStable $appAsar
-}
-
-function Get-DiscordPreflight {
-    if (-not (Test-Path $discordRoot)) {
-        return [pscustomobject]@{
-            State = "Missing"
-            Message = "Discord was not found. Install Discord before installing AutoVencord."
-        }
-    }
-
-    $latest = Get-LatestDiscordInstall
-
-    if (-not $latest) {
-        return [pscustomobject]@{
-            State = "Incomplete"
-            Message = "Discord folder exists, but no app-* version folder was found. Start Discord once, then try again."
-        }
-    }
-
-    if (-not (Test-DiscordInstallReady $latest)) {
-        return [pscustomobject]@{
-            State = "Incomplete"
-            Message = "Discord looks incomplete or is updating. Start Discord once, then try again."
-        }
-    }
-
-    return [pscustomobject]@{
-        State = "Ready"
-        Message = "Discord is ready."
-    }
-}
-
-function Wait-DiscordReadyForInitialPatch {
-    $deadline = (Get-Date).AddMinutes(5)
-
-    while ((Get-Date) -lt $deadline) {
-        if (Test-DiscordUpdaterActive) {
-            Write-SetupLog "Discord updater is active, waiting before initial patch"
-            Start-Sleep -Seconds 10
-            continue
-        }
-
-        $latest = Get-LatestDiscordInstall
-        if ($latest -and (Test-DiscordInstallReady $latest)) {
-            return $true
-        }
-
-        Start-Sleep -Seconds 10
-    }
-
-    return $false
-}
-
-function Invoke-VencordInstallerCli {
-    param(
-        [string]$InstallerPath,
-        [string]$DiscordRoot
-    )
-
-    $stdoutPath = Join-Path $baseDir ("cli-stdout-" + [guid]::NewGuid().ToString() + ".log")
-    $stderrPath = Join-Path $baseDir ("cli-stderr-" + [guid]::NewGuid().ToString() + ".log")
-
-    try {
-        $process = Start-Process -FilePath $InstallerPath -ArgumentList @("-install", "-location", $DiscordRoot) -PassThru -NoNewWindow -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
-
-        if (-not $process.WaitForExit($patchTimeoutSeconds * 1000)) {
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-            $exitCode = 124
-        } else {
-            $exitCode = $process.ExitCode
-        }
-    } finally {
-        $output = @()
-
-        if (Test-Path $stdoutPath) {
-            $output += Get-Content -LiteralPath $stdoutPath -ErrorAction SilentlyContinue
-            Remove-Item $stdoutPath -Force -ErrorAction SilentlyContinue
-        }
-
-        if (Test-Path $stderrPath) {
-            $output += Get-Content -LiteralPath $stderrPath -ErrorAction SilentlyContinue
-            Remove-Item $stderrPath -Force -ErrorAction SilentlyContinue
-        }
-    }
-
-    return [pscustomobject]@{
-        Output = $output
-        ExitCode = $exitCode
-    }
-}
-
-if ($PatchNow) {
-    $discordPreflight = Get-DiscordPreflight
-
-    if ($discordPreflight.State -ne "Ready") {
-        Write-Host $discordPreflight.Message -ForegroundColor Red
-
-        if ($discordPreflight.State -eq "Missing") {
-            exit 20
-        }
-
-        exit 21
-    }
-}
-
-New-Item -ItemType Directory -Force -Path $baseDir | Out-Null
-Write-SetupLog "Setup started"
-Stop-ExistingTask
-
-if ($SourceBatPath -and (Test-Path $SourceBatPath)) {
-    Copy-Item -LiteralPath $SourceBatPath -Destination $installerBatchCopyPath -Force
-    Write-SetupLog "Installer batch copied"
-}
-
-if ($SourceSetupPath -and (Test-Path $SourceSetupPath)) {
-    Copy-Item -LiteralPath $SourceSetupPath -Destination $installerSetupCopyPath -Force
-    Write-SetupLog "Installer setup copied"
-}
-
-if (Test-Path $installerSetupCopyPath) {
-    (Get-FileHash -LiteralPath $installerSetupCopyPath -Algorithm SHA256).Hash | Set-Content -LiteralPath $installerSetupHashPath -Encoding ASCII
-    Write-SetupLog "Installer setup hash written"
-}
-
-Write-Host "Downloading official Vencord installer..."
-Download-File $downloadUrl $installerPath
-if (-not (Test-WindowsExecutable -Path $installerPath)) {
-    throw "Downloaded Vencord installer is missing, incomplete, or not a Windows executable."
-}
-
-Write-SetupLog "Installer downloaded"
-
-$watchdogContent = @'
-$ErrorActionPreference = "SilentlyContinue"
-
-$baseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$installer = Join-Path $baseDir "VencordInstallerCli.exe"
-$discordRoot = Join-Path $env:LOCALAPPDATA "Discord"
-$logPath = Join-Path $baseDir "last-action.log"
-$logMaxBytes = 2097152
-$debounceSeconds = 5
-$retryDelaySeconds = 10
-$maxReadyWaitSeconds = 300
-$patchTimeoutSeconds = 180
-$periodicCheckSeconds = 1800
-$script:isChecking = $false
-$mutexName = "Local\AutoVencordWatchdog-$($env:USERNAME)"
-$mutexCreated = $false
-$mutex = New-Object System.Threading.Mutex($true, $mutexName, [ref]$mutexCreated)
-
-if (-not $mutexCreated) {
-    exit 0
-}
-
-function Rotate-LogIfNeeded {
-    try {
-        if (-not (Test-Path $logPath)) {
-            return
-        }
-
-        $size = (Get-Item $logPath).Length
-        if ($size -lt $logMaxBytes) {
-            return
-        }
-
-        $backupPath = Join-Path $baseDir "last-action.previous.log"
-        if (Test-Path $backupPath) {
-            Remove-Item $backupPath -Force -ErrorAction SilentlyContinue
-        }
-
-        Move-Item $logPath $backupPath -Force
-    } catch {}
-}
-
-function Write-Log($message) {
-    try {
-        New-Item -ItemType Directory -Force -Path $baseDir | Out-Null
-        Rotate-LogIfNeeded
-        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        Add-Content -Path $logPath -Value "[$timestamp] $message"
-    } catch {}
-}
-
-function Get-DiscordAppVersion($directoryName) {
-    $raw = $directoryName -replace "^app-", ""
-
-    try {
-        return [version]$raw
-    } catch {
-        return [version]"0.0.0.0"
-    }
-}
-
-function Get-LatestDiscordInstall {
-    if (-not (Test-Path $discordRoot)) {
-        return $null
-    }
-
-    $latest = $null
-    $latestVersion = [version]"0.0.0.0"
-    $latestWriteTime = [datetime]::MinValue
-
-    $dirs = Get-ChildItem $discordRoot -ErrorAction SilentlyContinue |
-        Where-Object { $_.PSIsContainer -and $_.Name -like "app-*" }
-
-    foreach ($dir in $dirs) {
-        $version = Get-DiscordAppVersion $dir.Name
-
-        if (($version -gt $latestVersion) -or ($version -eq $latestVersion -and $dir.LastWriteTimeUtc -gt $latestWriteTime)) {
-            $latest = $dir
-            $latestVersion = $version
-            $latestWriteTime = $dir.LastWriteTimeUtc
-        }
-    }
-
-    return $latest
-}
-
-function Test-DiscordUpdaterActive {
-    $processes = Get-Process -ErrorAction SilentlyContinue |
-        Where-Object { @("Update", "Squirrel") -contains $_.ProcessName }
-
-    foreach ($process in $processes) {
-        $path = $null
-
-        try {
-            $path = $process.Path
-        } catch {}
-
-        if ($path -and ($path.StartsWith($discordRoot, [System.StringComparison]::OrdinalIgnoreCase) -or $path -like "*\SquirrelTemp\*")) {
-            return $true
-        }
-    }
-
-    $squirrelTemp = Join-Path $discordRoot "SquirrelTemp"
-    if (Test-Path $squirrelTemp) {
-        try {
-            if ((Get-Item $squirrelTemp).LastWriteTimeUtc -gt (Get-Date).ToUniversalTime().AddMinutes(-5)) {
-                return $true
-            }
-        } catch {}
-    }
-
-    return $false
-}
-
-function Test-FileStable($path) {
-    if (-not (Test-Path $path)) {
-        return $false
-    }
-
-    try {
-        $first = Get-Item $path
-        if ($first.Length -le 0) {
-            return $false
-        }
-
-        Start-Sleep -Seconds 2
-
-        $second = Get-Item $path
-        if ($first.Length -ne $second.Length -or $first.LastWriteTimeUtc -ne $second.LastWriteTimeUtc) {
-            return $false
-        }
-
-        $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
-        $stream.Close()
-        return $true
-    } catch {
-        return $false
-    }
-}
-
-function Test-VencordPatched($appDir) {
-    $resources = Join-Path $appDir.FullName "resources"
-    $appAsar = Join-Path $resources "app.asar"
-    $backupAsar = Join-Path $resources "_app.asar"
-
-    if (-not (Test-Path $appAsar) -or -not (Test-Path $backupAsar)) {
-        return $false
-    }
-
-    return (Get-Item $appAsar).Length -lt 4096
-}
-
-function Test-DiscordInstallReady($appDir) {
-    if (-not $appDir) {
-        return $false
-    }
-
-    $resources = Join-Path $appDir.FullName "resources"
-    $appAsar = Join-Path $resources "app.asar"
-    $buildInfo = Join-Path $resources "build_info.json"
-
-    if (-not (Test-Path $resources) -or -not (Test-Path $appAsar) -or -not (Test-Path $buildInfo)) {
-        return $false
-    }
-
-    return Test-FileStable $appAsar
-}
-
-function Wait-LatestDiscordInstallReady {
-    $deadline = (Get-Date).AddSeconds($maxReadyWaitSeconds)
-    $loggedUpdater = $false
-    $lastLoggedApp = $null
-
-    while ((Get-Date) -lt $deadline) {
-        $latest = Get-LatestDiscordInstall
-
-        if (-not $latest) {
-            Write-Log "No Discord install found while waiting for readiness"
-            Start-Sleep -Seconds $retryDelaySeconds
-            continue
-        }
-
-        if (Test-DiscordUpdaterActive) {
-            if (-not $loggedUpdater) {
-                Write-Log "Discord updater is active, waiting before patching"
-                $loggedUpdater = $true
-            }
-
-            Start-Sleep -Seconds $retryDelaySeconds
-            continue
-        }
-
-        if (Test-DiscordInstallReady $latest) {
-            return $latest
-        }
-
-        if ($lastLoggedApp -ne $latest.Name) {
-            Write-Log "Discord install is not ready yet: $($latest.Name)"
-            $lastLoggedApp = $latest.Name
-        }
-
-        Start-Sleep -Seconds $retryDelaySeconds
-    }
-
-    Write-Log "Discord install did not become ready in $maxReadyWaitSeconds seconds"
     return $null
 }
 
-function Patch-Discord {
-    if (-not (Test-Path $installer)) {
-        Write-Log "Installer not found: $installer"
-        return $false
+function Get-PayloadDefinition {
+    $localManifest = Get-LocalPayloadFile -FileName "AutoVencord-Payload.json"
+    if ($localManifest) {
+        return (Read-JsonFile -Path $localManifest)
     }
 
-    try {
-        Write-Log "Starting patch for Discord at $discordRoot"
-        $stdoutPath = Join-Path $baseDir ("cli-stdout-" + [guid]::NewGuid().ToString() + ".log")
-        $stderrPath = Join-Path $baseDir ("cli-stderr-" + [guid]::NewGuid().ToString() + ".log")
-
-        try {
-            $process = Start-Process -FilePath $installer -ArgumentList @("-install", "-location", $discordRoot) -PassThru -NoNewWindow -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
-
-            if (-not $process.WaitForExit($patchTimeoutSeconds * 1000)) {
-                Write-Log "Patch timed out after $patchTimeoutSeconds seconds, stopping CLI process"
-                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-                return $false
-            }
-
-            $exitCode = $process.ExitCode
-        } finally {
-            $output = @()
-
-            if (Test-Path $stdoutPath) {
-                $output += Get-Content -LiteralPath $stdoutPath -ErrorAction SilentlyContinue
-                Remove-Item $stdoutPath -Force -ErrorAction SilentlyContinue
-            }
-
-            if (Test-Path $stderrPath) {
-                $output += Get-Content -LiteralPath $stderrPath -ErrorAction SilentlyContinue
-                Remove-Item $stderrPath -Force -ErrorAction SilentlyContinue
-            }
-        }
-
-        if ($output) {
-            $output | ForEach-Object {
-                Write-Log "CLI: $_"
-            }
-        }
-
-        if ($exitCode -ne 0) {
-            Write-Log "Patch failed with exit code $exitCode"
-            return $false
-        }
-
-        Write-Log "Patch finished"
-        return $true
-    } catch {
-        Write-Log "Patch failed: $($_.Exception.Message)"
-        return $false
+    $tempManifest = Join-Path $tempDir "AutoVencord-Payload.json"
+    $download = Invoke-DownloadToFile -Urls (Get-PayloadCandidateUrls -FileName "AutoVencord-Payload.json") -DestinationPath $tempManifest -MinBytes 32
+    if (-not $download.Success) {
+        throw "Failed to load payload manifest: $($download.Errors -join '; ')"
     }
+
+    $manifest = Read-JsonFile -Path $tempManifest
+    if (-not $manifest) {
+        throw "Downloaded payload manifest is invalid."
+    }
+
+    return $manifest
 }
 
-function Invoke-PatchIfNeeded {
-    if ($script:isChecking) {
-        Write-Log "Check skipped because another check is already running"
+function Resolve-PayloadFile {
+    param(
+        [string]$FileName,
+        [string]$DestinationPath,
+        $PayloadDefinition
+    )
+
+    $localSource = Get-LocalPayloadFile -FileName $FileName
+    if ($localSource) {
+        $tempCopy = "{0}.{1}.tmp" -f $DestinationPath, ([guid]::NewGuid().ToString("N"))
+        Copy-Item -LiteralPath $localSource -Destination $tempCopy -Force
+        Move-Item -LiteralPath $tempCopy -Destination $DestinationPath -Force
         return
     }
 
-    $script:isChecking = $true
+    $hashTable = @{}
+    if ($PayloadDefinition.files) {
+        foreach ($property in $PayloadDefinition.files.PSObject.Properties) {
+            $hashTable[$property.Name] = $property.Value
+        }
+    }
 
-    try {
-        $latest = Get-LatestDiscordInstall
+    $expectedHash = $null
+    if ($hashTable.ContainsKey($FileName)) {
+        $expectedHash = [string]$hashTable[$FileName]
+    }
 
-        if (-not $latest) {
-            Write-Log "No Discord install found in $discordRoot"
-            return
+    $validation = {
+        param($Path)
+        if (-not $expectedHash) {
+            return $true
         }
 
-        if (Test-VencordPatched $latest) {
-            Write-Log "Checked version $($latest.Name): already patched"
-            return
-        }
+        $actualHash = Get-FileSha256 -Path $Path
+        return ($actualHash -eq $expectedHash)
+    }.GetNewClosure()
 
-        Write-Log "Detected unpatched Discord version: $($latest.Name)"
-
-        $ready = Wait-LatestDiscordInstallReady
-        if (-not $ready) {
-            Write-Log "Patch postponed because Discord is still updating"
-            return
-        }
-
-        if (Test-VencordPatched $ready) {
-            Write-Log "Version $($ready.Name) became patched while waiting"
-            return
-        }
-
-        if (Patch-Discord) {
-            Start-Sleep -Seconds 2
-            $verified = Get-LatestDiscordInstall
-
-            if ($verified -and (Test-VencordPatched $verified)) {
-                Write-Log "Patch verified for $($verified.Name)"
-            } else {
-                Write-Log "Patch verification failed, will retry on next event or periodic check"
-            }
-        }
-    } finally {
-        $script:isChecking = $false
+    $download = Invoke-DownloadToFile -Urls (Get-PayloadCandidateUrls -FileName $FileName) -DestinationPath $DestinationPath -MinBytes 16 -ValidationScript $validation
+    if (-not $download.Success) {
+        throw "Failed to fetch ${FileName}: $($download.Errors -join '; ')"
     }
 }
 
-function Start-Watcher {
-    while ($true) {
-        while (-not (Test-Path $discordRoot)) {
-            Write-Log "Discord root missing, waiting for it to appear"
-            Start-Sleep -Seconds 30
-        }
-
-        $watcher = $null
-
-        try {
-            Get-EventSubscriber -ErrorAction SilentlyContinue |
-                Where-Object { $_.SourceIdentifier -like "AutoVencord.*" } |
-                Unregister-Event -ErrorAction SilentlyContinue
-
-            Get-Event -ErrorAction SilentlyContinue |
-                Where-Object { $_.SourceIdentifier -like "AutoVencord.*" } |
-                Remove-Event -ErrorAction SilentlyContinue
-
-            $watcher = New-Object System.IO.FileSystemWatcher
-            $watcher.Path = $discordRoot
-            $watcher.IncludeSubdirectories = $true
-            $watcher.InternalBufferSize = 65536
-            $watcher.NotifyFilter = [System.IO.NotifyFilters]::DirectoryName -bor [System.IO.NotifyFilters]::FileName -bor [System.IO.NotifyFilters]::LastWrite -bor [System.IO.NotifyFilters]::Size
-            $watcher.EnableRaisingEvents = $true
-
-            Register-ObjectEvent -InputObject $watcher -EventName Created -SourceIdentifier "AutoVencord.Created" | Out-Null
-            Register-ObjectEvent -InputObject $watcher -EventName Changed -SourceIdentifier "AutoVencord.Changed" | Out-Null
-            Register-ObjectEvent -InputObject $watcher -EventName Renamed -SourceIdentifier "AutoVencord.Renamed" | Out-Null
-            Register-ObjectEvent -InputObject $watcher -EventName Error -SourceIdentifier "AutoVencord.Error" | Out-Null
-
-            Write-Log "Watcher started"
-            Invoke-PatchIfNeeded
-
-            while (Test-Path $discordRoot) {
-                $event = Wait-Event -Timeout $periodicCheckSeconds
-
-                if ($event) {
-                    $sourceIdentifier = $event.SourceIdentifier
-                    Start-Sleep -Seconds $debounceSeconds
-                    Get-Event -ErrorAction SilentlyContinue |
-                        Where-Object { $_.SourceIdentifier -like "AutoVencord.*" } |
-                        Remove-Event -ErrorAction SilentlyContinue
-
-                    if ($sourceIdentifier -eq "AutoVencord.Error") {
-                        Write-Log "Watcher error detected, restarting watcher"
-                        break
-                    }
-
-                    Write-Log "Discord filesystem change batch detected"
-                    Invoke-PatchIfNeeded
-                } else {
-                    Write-Log "Periodic safety check"
-                    Invoke-PatchIfNeeded
-                }
-            }
-
-            Write-Log "Discord root disappeared or watcher restart requested"
-        } catch {
-            Write-Log "Watcher crashed: $($_.Exception.Message)"
-        } finally {
-            Get-EventSubscriber -ErrorAction SilentlyContinue |
-                Where-Object { $_.SourceIdentifier -like "AutoVencord.*" } |
-                Unregister-Event -ErrorAction SilentlyContinue
-
-            if ($watcher) {
-                $watcher.EnableRaisingEvents = $false
-                $watcher.Dispose()
-            }
-        }
-
-        Start-Sleep -Seconds 15
-    }
-}
-
-try {
-    Start-Watcher
-} finally {
-    if ($mutex) {
-        $mutex.ReleaseMutex()
-        $mutex.Dispose()
-    }
-}
-
-'@
-
-$uninstallContent = @"
+function Write-UninstallScript {
+    $context = Get-AutoVencordContext
+    $content = @"
 @echo off
 setlocal
-set "TASK_NAME=AutoVencord Watchdog"
+set "TASK_NAME=$($context.TaskName)"
 set "BASE_DIR=%~dp0"
 set "SELF=%~f0"
 set "CLEANUP=%TEMP%\AutoVencord-cleanup-%RANDOM%%RANDOM%.cmd"
 echo Running AutoVencord uninstall...
 schtasks /End /TN "%TASK_NAME%" >nul 2>&1
 schtasks /Delete /TN "%TASK_NAME%" /F >nul 2>&1
-echo Removed: %TASK_NAME%
 del /f /q "%BASE_DIR%watchdog.ps1" >nul 2>&1
+del /f /q "%BASE_DIR%AutoVencord.Core.ps1" >nul 2>&1
 del /f /q "%BASE_DIR%VencordInstallerCli.exe" >nul 2>&1
 del /f /q "%BASE_DIR%AutoVencord-OneClick.bat" >nul 2>&1
 del /f /q "%BASE_DIR%AutoVencord-Setup.ps1" >nul 2>&1
 del /f /q "%BASE_DIR%AutoVencord-Setup.sha256" >nul 2>&1
+del /f /q "%BASE_DIR%installed-manifest.json" >nul 2>&1
+del /f /q "%BASE_DIR%uninstall.bat" >nul 2>&1
 del /f /q "%BASE_DIR%last-action.log" >nul 2>&1
 del /f /q "%BASE_DIR%last-action.previous.log" >nul 2>&1
 > "%CLEANUP%" echo @echo off
@@ -814,54 +259,126 @@ del /f /q "%BASE_DIR%last-action.previous.log" >nul 2>&1
 >> "%CLEANUP%" echo rmdir "%BASE_DIR%" ^>nul 2^>^&1
 >> "%CLEANUP%" echo del /f /q "%%~f0" ^>nul 2^>^&1
 start "" /min cmd /c "%CLEANUP%"
-echo Removed files from: %BASE_DIR%
 if /I not "%AUTOVENCORD_NO_PAUSE%"=="1" pause >nul
 "@
 
-Set-Content -LiteralPath $watchdogPath -Value $watchdogContent -Encoding UTF8
-Set-Content -LiteralPath $uninstallPath -Value $uninstallContent -Encoding ASCII
-Write-SetupLog "Files written"
+    Invoke-AtomicTextWrite -Path $context.UninstallPath -Content $content -Encoding ([System.Text.Encoding]::ASCII)
+}
 
-if ($PatchNow) {
-    if (Test-Path $discordRoot) {
-        Get-Process Discord -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+function Install-RuntimePayload {
+    param(
+        $PayloadDefinition
+    )
 
-        if (Wait-DiscordReadyForInitialPatch) {
-            Write-Host "Patching Discord with official Vencord CLI..."
-            Write-SetupLog "Initial patch started"
-            $result = Invoke-VencordInstallerCli -InstallerPath $installerPath -DiscordRoot $discordRoot
-            $output = $result.Output
-            $exitCode = $result.ExitCode
+    $context = Get-AutoVencordContext
+    New-Item -ItemType Directory -Force -Path $context.BaseDir | Out-Null
 
-            if ($output) {
-                $output | ForEach-Object { Write-SetupLog "CLI: $_" }
+    $fileMap = [ordered]@{
+        "AutoVencord.Core.ps1" = $context.CorePath
+        "AutoVencord-Setup.ps1" = $context.SetupPath
+        "AutoVencord-OneClick.bat" = $context.BatchPath
+        "watchdog.ps1" = $context.WatchdogPath
+    }
+
+    foreach ($entry in $fileMap.GetEnumerator()) {
+        Resolve-PayloadFile -FileName $entry.Key -DestinationPath $entry.Value -PayloadDefinition $PayloadDefinition
+        Write-AutoVencordLog -Phase "SETUP" -Action "write-file" -Message ("Prepared {0}" -f $entry.Key)
+    }
+
+    Write-UninstallScript
+}
+
+function Get-InstalledFileHashes {
+    $context = Get-AutoVencordContext
+    return [ordered]@{
+        "AutoVencord.Core.ps1" = Get-FileSha256 -Path $context.CorePath
+        "AutoVencord-Setup.ps1" = Get-FileSha256 -Path $context.SetupPath
+        "AutoVencord-OneClick.bat" = Get-FileSha256 -Path $context.BatchPath
+        "watchdog.ps1" = Get-FileSha256 -Path $context.WatchdogPath
+    }
+}
+
+try {
+    $preflightState = $null
+    if ($PatchNow) {
+        $preflightState = Get-DiscordState
+        switch ($preflightState.State) {
+            "DiscordMissing" {
+                Write-Host "Discord was not found. Install Discord before installing AutoVencord." -ForegroundColor Red
+                exit $exitCodes.DiscordMissing
             }
+            "DiscordIncomplete" {
+                Write-Host "Discord looks incomplete. Start Discord once, then try again." -ForegroundColor Red
+                exit $exitCodes.DiscordNotReady
+            }
+        }
+    }
 
-            if ($exitCode -ne 0) {
+    $payloadDefinition = Get-PayloadDefinition
+    New-Item -ItemType Directory -Force -Path $baseDir | Out-Null
+    Write-AutoVencordLog -Phase "SETUP" -Action "start" -Message "Setup started."
+
+    Stop-AutoVencordTask
+    Remove-Item -LiteralPath (Join-Path $baseDir "AutoVencord-Setup.sha256") -Force -ErrorAction SilentlyContinue
+    Install-RuntimePayload -PayloadDefinition $payloadDefinition
+
+    $cliDownload = Invoke-DownloadToFile -Urls @($downloadUrl) -DestinationPath (Get-AutoVencordContext).InstallerPath -MinBytes 102400 -ValidationScript ${function:Test-WindowsExecutable}
+    if (-not $cliDownload.Success) {
+        Write-AutoVencordLog -Phase "SETUP" -Action "cli-download" -Message ($cliDownload.Errors -join "; ")
+        exit $exitCodes.CliDownloadFailed
+    }
+
+    $fileHashes = Get-InstalledFileHashes
+    Write-InstalledPayloadManifest -PayloadVersion $payloadVersion -PayloadRef $payloadRef -FileHashes $fileHashes
+    Write-AutoVencordLog -Phase "SETUP" -Action "manifest" -Message "Installed manifest written."
+
+    $patchExitCode = $exitCodes.Success
+    if ($PatchNow) {
+        Get-Process Discord -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        $readyState = Wait-ForDiscordReady -MaxWaitSeconds 300 -LogPhase "SETUP"
+
+        if ($readyState.State -eq "DiscordReady") {
+            Write-Host "Patching Discord with official Vencord CLI..."
+            Write-AutoVencordLog -Phase "SETUP" -Action "patch-start" -Message "Initial patch started." -Fingerprint $readyState.Fingerprint
+            $patchResult = Invoke-VencordCliAction -InstallerPath (Get-AutoVencordContext).InstallerPath -Action "install" -DiscordRoot (Get-AutoVencordContext).DiscordRoot -TimeoutSeconds 180 -LogPhase "SETUP"
+            if (-not $patchResult.Success) {
                 Write-Warning "Initial patch failed. Watchdog will retry when Discord is ready."
-                Write-SetupLog "Initial patch failed with exit code $exitCode"
+                Write-AutoVencordLog -Phase "SETUP" -Action "patch-failed" -Message "Initial patch failed." -Fingerprint $readyState.Fingerprint -ExitCode $patchResult.ExitCode
+                $patchExitCode = $exitCodes.PatchFailed
             } else {
-                Write-SetupLog "Initial patch finished"
+                $verifiedPatch = Get-PatchState -AppDir (Get-DiscordState).Latest
+                if ($verifiedPatch.State -eq "PatchPresent") {
+                    Write-AutoVencordLog -Phase "SETUP" -Action "patch-verified" -Message "Initial patch verified." -Fingerprint $verifiedPatch.Fingerprint
+                } else {
+                    Write-Warning "Initial patch completed, but verification is inconclusive. Watchdog will keep monitoring."
+                    Write-AutoVencordLog -Phase "SETUP" -Action "patch-verify" -Message $verifiedPatch.Reason -Fingerprint $verifiedPatch.Fingerprint
+                }
             }
         } else {
             Write-Warning "Discord looks busy or incomplete. Watchdog will patch it automatically when it is ready."
-            Write-SetupLog "Initial patch postponed because Discord was not ready"
+            Write-AutoVencordLog -Phase "SETUP" -Action "patch-postpone" -Message $readyState.Message -Fingerprint $readyState.Fingerprint
+            $patchExitCode = $exitCodes.DiscordNotReady
         }
+
+        if (-not (Install-AutoVencordTask -ScriptPath (Get-AutoVencordContext).WatchdogPath)) {
+            exit $exitCodes.TaskFailed
+        }
+
+        Write-AutoVencordLog -Phase "SETUP" -Action "task-installed" -Message "Watchdog task installed."
     } else {
-        Write-Warning "Discord folder was not found. Watchdog will wait until Discord is installed."
-        Write-SetupLog "Discord folder not found during setup"
+        Write-Host "Patch and watchdog start skipped. Use the installer menu Install or Update action to apply AutoVencord." -ForegroundColor Yellow
+        Write-AutoVencordLog -Phase "SETUP" -Action "skip-patch" -Message "Patch and task start skipped because PatchNow was not requested."
     }
 
-    Install-Task -TaskName $taskName -ScriptPath $watchdogPath
-    Write-SetupLog "Task installed"
-} else {
-    Write-Host "Patch and watchdog start skipped. Use the installer menu Install or Update action to apply AutoVencord." -ForegroundColor Yellow
-    Write-SetupLog "Patch and task start skipped because PatchNow was not requested"
+    Write-Host ""
+    Write-Host "AutoVencord installed successfully." -ForegroundColor Green
+    Write-Host "Folder: $baseDir"
+    Write-Host "Task:   $taskName"
+    Write-Host ""
+
+    exit $patchExitCode
+} catch {
+    Write-AutoVencordLog -Phase "SETUP" -Action "fatal" -Message $_.Exception.Message
+    Write-Error $_.Exception.Message
+    exit $exitCodes.NetworkFailure
 }
-
-Write-Host ""
-Write-Host "AutoVencord installed successfully." -ForegroundColor Green
-Write-Host "Folder: $baseDir"
-Write-Host "Task:   $taskName"
-Write-Host ""
-
