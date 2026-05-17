@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$payloadVersion = "2026.05.17.5"
+$payloadVersion = "2026.05.17.6"
 $payloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $baseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $taskName = "AutoVencord Watchdog"
@@ -376,7 +376,8 @@ try {
                         $verifiedPatch = Get-PatchState -AppDir (Get-DiscordState).Latest
                         if ($verifiedPatch.State -eq "PatchPresent") {
                             Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot (Get-AutoVencordContext).DiscordRoot -LogPhase "SETUP"
-                            $stablePatch = Confirm-PatchRemainsPresent -AppDir (Get-DiscordState).Latest -WatchSeconds 45 -IntervalSeconds 5 -LogPhase "SETUP"
+                            Write-Host "Verifying that the patch stays active..."
+                            $stablePatch = Confirm-PatchRemainsPresent -AppDir (Get-DiscordState).Latest -WatchSeconds 15 -IntervalSeconds 3 -LogPhase "SETUP"
                             if ($stablePatch.State -eq "PatchPresent") {
                                 Write-AutoVencordLog -Phase "SETUP" -Action "patch-verified" -Message "Initial patch verified." -Fingerprint $stablePatch.Fingerprint
                             } else {

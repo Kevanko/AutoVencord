@@ -1,4 +1,4 @@
-$script:AutoVencordPayloadVersion = "2026.05.17.5"
+$script:AutoVencordPayloadVersion = "2026.05.17.6"
 $script:AutoVencordExitCodes = @{
     Success = 0
     NetworkFailure = 10
@@ -50,8 +50,8 @@ function Set-AutoVencordContext {
         PatchTimeoutSeconds = 180
         PeriodicCheckSeconds = 60
         DebounceSeconds = 5
-        PostPatchWatchSeconds = 45
-        PostPatchCheckIntervalSeconds = 5
+        PostPatchWatchSeconds = 15
+        PostPatchCheckIntervalSeconds = 3
         WatcherRestartDelaySeconds = 15
         UpdaterTempGraceSeconds = 15
     }
@@ -1047,8 +1047,8 @@ function Invoke-VencordCliAction {
 function Confirm-PatchRemainsPresent {
     param(
         $AppDir,
-        [int]$WatchSeconds = 45,
-        [int]$IntervalSeconds = 5,
+        [int]$WatchSeconds = 15,
+        [int]$IntervalSeconds = 3,
         [string]$LogPhase = "RUNTIME"
     )
 
