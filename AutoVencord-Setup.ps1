@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$payloadVersion = "2026.05.17.1"
+$payloadVersion = "2026.05.17.2"
 $payloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $baseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $taskName = "AutoVencord Watchdog"
@@ -124,8 +124,18 @@ function Initialize-CoreModule {
     return $bootstrapCorePath
 }
 
+function Get-CoreModuleScriptBlock {
+    param(
+        [string]$Path
+    )
+
+    $content = Get-Content -LiteralPath $Path -Raw
+    return [scriptblock]::Create($content)
+}
+
 $resolvedCorePath = Initialize-CoreModule
-. $resolvedCorePath
+$resolvedCoreScriptBlock = Get-CoreModuleScriptBlock -Path $resolvedCorePath
+. $resolvedCoreScriptBlock
 Set-AutoVencordContext -BaseDir $baseDir -TaskName $taskName | Out-Null
 $exitCodes = Get-AutoVencordExitCodes
 

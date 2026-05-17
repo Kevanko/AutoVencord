@@ -1,4 +1,4 @@
-$script:AutoVencordPayloadVersion = "2026.05.17.1"
+$script:AutoVencordPayloadVersion = "2026.05.17.2"
 $script:AutoVencordExitCodes = @{
     Success = 0
     NetworkFailure = 10

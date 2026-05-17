@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.17.1"
+$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.17.2"
 $installerPayloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $installerPayloadMarker = "AUTOVENCORD_PAYLOAD_VERSION"
 $windowTitle = "AutoVencord"
@@ -105,8 +105,18 @@ function Initialize-CoreModule {
     return $coreTempPath
 }
 
+function Get-CoreModuleScriptBlock {
+    param(
+        [string]$Path
+    )
+
+    $content = Get-Content -LiteralPath $Path -Raw
+    return [scriptblock]::Create($content)
+}
+
 $resolvedCorePath = Initialize-CoreModule
-. $resolvedCorePath
+$resolvedCoreScriptBlock = Get-CoreModuleScriptBlock -Path $resolvedCorePath
+. $resolvedCoreScriptBlock
 Set-AutoVencordContext -BaseDir $installedBaseDir | Out-Null
 
 function Join-CodePoints {
