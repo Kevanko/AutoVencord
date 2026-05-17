@@ -1,4 +1,4 @@
-$script:AutoVencordPayloadVersion = "2026.05.15.14"
+$script:AutoVencordPayloadVersion = "2026.05.17.1"
 $script:AutoVencordExitCodes = @{
     Success = 0
     NetworkFailure = 10
@@ -45,7 +45,7 @@ function Set-AutoVencordContext {
         RuntimeManifestPath = Join-Path $resolvedBaseDir "installed-manifest.json"
         DiscordRoot = Join-Path $env:LOCALAPPDATA "Discord"
         LogMaxBytes = 2097152
-        ReadyRetryDelaySeconds = 10
+        ReadyRetryDelaySeconds = 2
         ReadyMaxWaitSeconds = 300
         PatchTimeoutSeconds = 180
         PeriodicCheckSeconds = 60
@@ -53,6 +53,7 @@ function Set-AutoVencordContext {
         PostPatchWatchSeconds = 45
         PostPatchCheckIntervalSeconds = 5
         WatcherRestartDelaySeconds = 15
+        UpdaterTempGraceSeconds = 15
     }
 
     return [pscustomobject]$script:AutoVencordContext
@@ -569,16 +570,88 @@ function Test-DiscordUpdaterActive {
         }
     }
 
+    if (Test-DiscordUpdaterLogActive) {
+        return $true
+    }
+
     $squirrelTemp = Join-Path $context.DiscordRoot "SquirrelTemp"
     if (Test-Path -LiteralPath $squirrelTemp) {
         try {
-            if ((Get-Item -LiteralPath $squirrelTemp).LastWriteTimeUtc -gt (Get-Date).ToUniversalTime().AddMinutes(-5)) {
+            if ((Get-Item -LiteralPath $squirrelTemp).LastWriteTimeUtc -gt (Get-Date).ToUniversalTime().AddSeconds(-[Math]::Max(1, $context.UpdaterTempGraceSeconds))) {
                 return $true
             }
         } catch {}
     }
 
     return $false
+}
+
+function Get-DiscordUpdaterLogPath {
+    $candidates = @(
+        (Join-Path $env:APPDATA "discord\logs\Discord_updater_rCURRENT.log"),
+        (Join-Path $env:APPDATA "Discord\logs\Discord_updater_rCURRENT.log")
+    )
+
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
+function Read-TextFileTail {
+    param(
+        [string]$Path,
+        [int]$MaxBytes = 32768
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    try {
+        $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        try {
+            $bytesToRead = [Math]::Min($MaxBytes, [int]$stream.Length)
+            $buffer = New-Object byte[] $bytesToRead
+            $stream.Seek(-$bytesToRead, [System.IO.SeekOrigin]::End) | Out-Null
+            [void]$stream.Read($buffer, 0, $bytesToRead)
+            return [System.Text.Encoding]::UTF8.GetString($buffer)
+        } finally {
+            $stream.Close()
+        }
+    } catch {
+        return $null
+    }
+}
+
+function Test-DiscordUpdaterLogActive {
+    $logPath = Get-DiscordUpdaterLogPath
+    if (-not $logPath) {
+        return $false
+    }
+
+    $text = Read-TextFileTail -Path $logPath
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $false
+    }
+
+    $lastStart = $text.LastIndexOf("Starting update to latest.", [System.StringComparison]::OrdinalIgnoreCase)
+    if ($lastStart -lt 0) {
+        return $false
+    }
+
+    $lastComplete = -1
+    foreach ($marker in @("Update to latest complete.", "Already up to date. Nothing to do.", "Updater main thread exiting")) {
+        $index = $text.LastIndexOf($marker, [System.StringComparison]::OrdinalIgnoreCase)
+        if ($index -gt $lastComplete) {
+            $lastComplete = $index
+        }
+    }
+
+    return ($lastStart -gt $lastComplete)
 }
 
 function Test-FileStable {
