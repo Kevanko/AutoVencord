@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.17.2"
+$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.17.3"
 $installerPayloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $installerPayloadMarker = "AUTOVENCORD_PAYLOAD_VERSION"
 $windowTitle = "AutoVencord"
@@ -71,6 +71,8 @@ function Get-PayloadCandidateUrls {
     )
 
     return @(
+        "https://cdn.jsdelivr.net/gh/Kevanko/AutoVencord@$installerPayloadRef/${FileName}",
+        "https://cdn.jsdelivr.net/gh/Kevanko/AutoVencord@main/${FileName}",
         "https://raw.githubusercontent.com/Kevanko/AutoVencord/$installerPayloadRef/${FileName}",
         "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/${FileName}",
         "https://github.com/Kevanko/AutoVencord/raw/main/${FileName}",
