@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$payloadVersion = "2026.05.18.6"
+$payloadVersion = "2026.05.18.7"
 $payloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $baseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $taskName = "AutoVencord Watchdog"
@@ -350,8 +350,14 @@ try {
 
     $patchExitCode = $exitCodes.Success
     if ($PatchNow) {
+        if (-not (Install-AutoVencordTask -ScriptPath (Get-AutoVencordContext).WatchdogPath)) {
+            exit $exitCodes.TaskFailed
+        }
+
+        Write-AutoVencordLog -Phase "SETUP" -Action "task-installed" -Message "Watchdog task installed."
+
         $restartDiscordAfterPatch = Test-DiscordClientRunning -DiscordRoot (Get-AutoVencordContext).DiscordRoot
-        $readyState = Wait-ForDiscordReady -MaxWaitSeconds 300 -LogPhase "SETUP"
+        $readyState = Get-DiscordState -SkipStabilityWait
 
         if ($readyState.State -eq "DiscordReady") {
             $existingPatch = Get-PatchState -AppDir $readyState.Latest
@@ -359,7 +365,7 @@ try {
                 Write-AutoVencordLog -Phase "SETUP" -Action "patch-state" -Message "Discord is already patched." -Fingerprint $existingPatch.Fingerprint
             } else {
                 Get-Process Discord -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-                $readyState = Wait-ForDiscordReady -MaxWaitSeconds 300 -LogPhase "SETUP"
+                $readyState = Wait-ForDiscordReady -MaxWaitSeconds 60 -LogPhase "SETUP"
 
                 if ($readyState.State -eq "DiscordReady") {
                     Write-Host "Patching Discord with official Vencord CLI..."
@@ -401,12 +407,6 @@ try {
             Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot (Get-AutoVencordContext).DiscordRoot -LogPhase "SETUP"
             $patchExitCode = $exitCodes.Success
         }
-
-        if (-not (Install-AutoVencordTask -ScriptPath (Get-AutoVencordContext).WatchdogPath)) {
-            exit $exitCodes.TaskFailed
-        }
-
-        Write-AutoVencordLog -Phase "SETUP" -Action "task-installed" -Message "Watchdog task installed."
     } else {
         Write-Host "Patch and watchdog start skipped. Use the installer menu Install or Update action to apply AutoVencord." -ForegroundColor Yellow
         Write-AutoVencordLog -Phase "SETUP" -Action "skip-patch" -Message "Patch and task start skipped because PatchNow was not requested."
