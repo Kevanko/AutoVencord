@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.18.7"
+$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.18.8"
 $installerPayloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $installerPayloadMarker = "AUTOVENCORD_PAYLOAD_VERSION"
 $windowTitle = "AutoVencord"
@@ -1239,17 +1239,12 @@ while ($true) {
         if ($selection -eq 0) {
             Invoke-Install -Ui $ui
             if (-not $autoAction) {
-                if (Show-ActionResult -Ui $ui -Message $ui.InstallDone -Color Green) {
-                    continue
-                }
+                continue
             }
         } elseif ($selection -eq 1) {
-            $updateApplied = Invoke-Update -Ui $ui
+            $null = Invoke-Update -Ui $ui
             if (-not $autoAction) {
-                $updateMessage = if ($updateApplied) { $ui.UpdateDone } else { $ui.AlreadyLatest }
-                if (Show-ActionResult -Ui $ui -Message $updateMessage -Color Green) {
-                    continue
-                }
+                continue
             }
         } elseif ($selection -eq 3) {
             $uninstallCompleted = $false
