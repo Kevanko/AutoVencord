@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$payloadVersion = "2026.05.18.3"
+$payloadVersion = "2026.05.18.4"
 $payloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $baseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $taskName = "AutoVencord Watchdog"
@@ -91,8 +91,6 @@ function Get-PayloadCandidateUrls {
     )
 
     return @(
-        "https://cdn.jsdelivr.net/gh/Kevanko/AutoVencord@$payloadRef/${FileName}",
-        "https://cdn.jsdelivr.net/gh/Kevanko/AutoVencord@main/${FileName}",
         "https://raw.githubusercontent.com/Kevanko/AutoVencord/$payloadRef/${FileName}",
         "https://raw.githubusercontent.com/Kevanko/AutoVencord/main/${FileName}",
         "https://github.com/Kevanko/AutoVencord/raw/main/${FileName}",

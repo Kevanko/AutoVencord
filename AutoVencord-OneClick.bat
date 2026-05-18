@@ -1,8 +1,8 @@
 @echo off
 setlocal EnableExtensions
 
-set "AUTOVENCORD_INSTALL_URL=https://cdn.jsdelivr.net/gh/Kevanko/AutoVencord@main/install.ps1"
-set "AUTOVENCORD_INSTALL_FALLBACK_URL=https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1"
+set "AUTOVENCORD_INSTALL_URL=https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1"
+set "AUTOVENCORD_INSTALL_FALLBACK_URL=https://github.com/Kevanko/AutoVencord/raw/main/install.ps1"
 set "AUTOVENCORD_TEMP_PS1=%TEMP%\AutoVencord-install-%RANDOM%%RANDOM%.ps1"
 set "AUTOVENCORD_PAYLOAD_MARKER=AUTOVENCORD_PAYLOAD_VERSION"
 

@@ -1,4 +1,4 @@
-$script:AutoVencordPayloadVersion = "2026.05.18.3"
+$script:AutoVencordPayloadVersion = "2026.05.18.4"
 $script:AutoVencordExitCodes = @{
     Success = 0
     NetworkFailure = 10
@@ -977,6 +977,10 @@ function Test-FileStable {
             return $false
         }
 
+        if ($SkipWait) {
+            return $true
+        }
+
         if (-not $SkipWait) {
             Start-Sleep -Seconds 2
         }
@@ -986,7 +990,7 @@ function Test-FileStable {
             return $false
         }
 
-        $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+        $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
         $stream.Close()
         return $true
     } catch {
@@ -1044,7 +1048,7 @@ function Get-DiscordState {
     $fingerprint = Get-DiscordFingerprint -AppDir $latest
 
     if (-not (Test-DiscordAppInstallComplete -AppDir $latest)) {
-        if (Test-DiscordUpdaterActive -IncludeLog) {
+        if (Test-DiscordUpdaterActive) {
             return [pscustomobject]@{
                 State = "DiscordUpdating"
                 Message = "Discord updater is active."
@@ -1057,6 +1061,13 @@ function Get-DiscordState {
         if ($completeLatest) {
             $latest = $completeLatest
             $fingerprint = Get-DiscordFingerprint -AppDir $latest
+        } elseif (Test-DiscordUpdaterLogActive) {
+            return [pscustomobject]@{
+                State = "DiscordUpdating"
+                Message = "Discord updater log looks active."
+                Latest = $latest
+                Fingerprint = $fingerprint
+            }
         } else {
             return [pscustomobject]@{
                 State = "DiscordIncomplete"
