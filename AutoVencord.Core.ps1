@@ -1,4 +1,4 @@
-$script:AutoVencordPayloadVersion = "2026.05.18.1"
+$script:AutoVencordPayloadVersion = "2026.05.18.2"
 $script:AutoVencordExitCodes = @{
     Success = 0
     NetworkFailure = 10
@@ -672,28 +672,49 @@ function Update-AutoVencordDiscordRoot {
 }
 
 function Get-LatestDiscordInstall {
+    param(
+        [switch]$RequireComplete
+    )
+
     $discordRoot = Update-AutoVencordDiscordRoot
     if (-not (Test-Path -LiteralPath $discordRoot)) {
         return $null
     }
 
-    $latest = $null
-    $latestVersion = [version]"0.0.0.0"
-    $latestWriteTime = [datetime]::MinValue
-
-    $dirs = Get-ChildItem -LiteralPath $discordRoot -ErrorAction SilentlyContinue |
-        Where-Object { $_.PSIsContainer -and $_.Name -like "app-*" }
+    $dirs = @(Get-ChildItem -LiteralPath $discordRoot -Directory -Filter "app-*" -ErrorAction SilentlyContinue |
+        Sort-Object @{ Expression = { Get-DiscordAppVersion -DirectoryName $_.Name }; Descending = $true }, @{ Expression = { $_.LastWriteTimeUtc }; Descending = $true })
 
     foreach ($dir in $dirs) {
-        $version = Get-DiscordAppVersion -DirectoryName $dir.Name
-        if (($version -gt $latestVersion) -or ($version -eq $latestVersion -and $dir.LastWriteTimeUtc -gt $latestWriteTime)) {
-            $latest = $dir
-            $latestVersion = $version
-            $latestWriteTime = $dir.LastWriteTimeUtc
+        if ($RequireComplete -and -not (Test-DiscordAppInstallComplete -AppDir $dir)) {
+            continue
         }
+
+        return $dir
     }
 
-    return $latest
+    return $null
+}
+
+function Test-DiscordAppInstallComplete {
+    param(
+        $AppDir
+    )
+
+    if (-not $AppDir) {
+        return $false
+    }
+
+    $discordExe = Join-Path $AppDir.FullName "Discord.exe"
+    $resources = Join-Path $AppDir.FullName "resources"
+    $appAsar = Join-Path $resources "app.asar"
+    $buildInfo = Join-Path $resources "build_info.json"
+
+    return (
+        (Test-Path -LiteralPath $discordExe) -and
+        (Test-Path -LiteralPath $resources) -and
+        (Test-Path -LiteralPath $appAsar) -and
+        (Test-Path -LiteralPath $buildInfo)
+    )
 }
 
 function Get-DiscordClientProcesses {
@@ -779,6 +800,10 @@ function Resume-DiscordAfterPatchIfNeeded {
 }
 
 function Test-DiscordUpdaterActive {
+    param(
+        [switch]$IncludeLog
+    )
+
     $discordRoot = Update-AutoVencordDiscordRoot
     $processes = Get-Process -ErrorAction SilentlyContinue |
         Where-Object { @("Update", "Squirrel") -contains $_.ProcessName }
@@ -795,10 +820,6 @@ function Test-DiscordUpdaterActive {
         }
     }
 
-    if (Test-DiscordUpdaterLogActive) {
-        return $true
-    }
-
     $context = Get-AutoVencordContext
     $squirrelTemp = Join-Path $discordRoot "SquirrelTemp"
     if (Test-Path -LiteralPath $squirrelTemp) {
@@ -807,6 +828,10 @@ function Test-DiscordUpdaterActive {
                 return $true
             }
         } catch {}
+    }
+
+    if ($IncludeLog -and (Test-DiscordUpdaterLogActive)) {
+        return $true
     }
 
     return $false
@@ -856,6 +881,16 @@ function Read-TextFileTail {
 function Test-DiscordUpdaterLogActive {
     $logPath = Get-DiscordUpdaterLogPath
     if (-not $logPath) {
+        return $false
+    }
+
+    try {
+        $context = Get-AutoVencordContext
+        $maxAgeSeconds = [Math]::Max(300, $context.ReadyMaxWaitSeconds)
+        if ((Get-Item -LiteralPath $logPath).LastWriteTimeUtc -lt (Get-Date).ToUniversalTime().AddSeconds(-$maxAgeSeconds)) {
+            return $false
+        }
+    } catch {
         return $false
     }
 
@@ -960,12 +995,36 @@ function Get-DiscordState {
         }
     }
 
-    $resources = Join-Path $latest.FullName "resources"
-    $appAsar = Join-Path $resources "app.asar"
-    $buildInfo = Join-Path $resources "build_info.json"
     $fingerprint = Get-DiscordFingerprint -AppDir $latest
 
-    if (-not (Test-Path -LiteralPath $resources) -or -not (Test-Path -LiteralPath $appAsar) -or -not (Test-Path -LiteralPath $buildInfo)) {
+    if (-not (Test-DiscordAppInstallComplete -AppDir $latest)) {
+        if (Test-DiscordUpdaterActive -IncludeLog) {
+            return [pscustomobject]@{
+                State = "DiscordUpdating"
+                Message = "Discord updater is active."
+                Latest = $latest
+                Fingerprint = $fingerprint
+            }
+        }
+
+        $completeLatest = Get-LatestDiscordInstall -RequireComplete
+        if ($completeLatest) {
+            $latest = $completeLatest
+            $fingerprint = Get-DiscordFingerprint -AppDir $latest
+        } else {
+            return [pscustomobject]@{
+                State = "DiscordIncomplete"
+                Message = "Discord files are incomplete."
+                Latest = $latest
+                Fingerprint = $fingerprint
+            }
+        }
+    }
+
+    $resources = Join-Path $latest.FullName "resources"
+    $appAsar = Join-Path $resources "app.asar"
+
+    if (-not (Test-Path -LiteralPath $appAsar)) {
         return [pscustomobject]@{
             State = "DiscordIncomplete"
             Message = "Discord files are incomplete."
