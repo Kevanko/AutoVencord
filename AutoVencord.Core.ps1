@@ -1,4 +1,4 @@
-$script:AutoVencordPayloadVersion = "2026.05.18.2"
+$script:AutoVencordPayloadVersion = "2026.05.18.3"
 $script:AutoVencordExitCodes = @{
     Success = 0
     NetworkFailure = 10
@@ -805,18 +805,28 @@ function Test-DiscordUpdaterActive {
     )
 
     $discordRoot = Update-AutoVencordDiscordRoot
-    $processes = Get-Process -ErrorAction SilentlyContinue |
-        Where-Object { @("Update", "Squirrel") -contains $_.ProcessName }
 
-    foreach ($process in $processes) {
-        $path = $null
+    try {
+        $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'Update.exe' OR Name = 'Squirrel.exe'" -ErrorAction Stop)
 
-        try {
-            $path = $process.Path
-        } catch {}
+        foreach ($process in $processes) {
+            if (Test-DiscordUpdaterProcessActive -Name $process.Name -Path $process.ExecutablePath -CommandLine $process.CommandLine -DiscordRoot $discordRoot) {
+                return $true
+            }
+        }
+    } catch {
+        $processes = Get-Process -ErrorAction SilentlyContinue |
+            Where-Object { @("Update", "Squirrel") -contains $_.ProcessName }
 
-        if ($path -and ($path.StartsWith($discordRoot, [System.StringComparison]::OrdinalIgnoreCase) -or $path -like "*\SquirrelTemp\*")) {
-            return $true
+        foreach ($process in $processes) {
+            $path = $null
+            try {
+                $path = $process.Path
+            } catch {}
+
+            if (Test-DiscordUpdaterProcessActive -Name $process.ProcessName -Path $path -CommandLine $null -DiscordRoot $discordRoot) {
+                return $true
+            }
         }
     }
 
@@ -831,6 +841,42 @@ function Test-DiscordUpdaterActive {
     }
 
     if ($IncludeLog -and (Test-DiscordUpdaterLogActive)) {
+        return $true
+    }
+
+    return $false
+}
+
+function Test-DiscordUpdaterProcessActive {
+    param(
+        [string]$Name,
+        [string]$Path,
+        [string]$CommandLine,
+        [string]$DiscordRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
+    if ($Path -like "*\SquirrelTemp\*") {
+        return $true
+    }
+
+    if (-not $Path.StartsWith($DiscordRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $false
+    }
+
+    if ($Name -ieq "Squirrel.exe" -or $Name -ieq "Squirrel") {
+        return $true
+    }
+
+    $command = [string]$CommandLine
+    if ($command -match "(?i)--processStart(?:AndWait)?\b") {
+        return $false
+    }
+
+    if ($command -match "(?i)--(?:update|install|download|checkForUpdate)\b") {
         return $true
     }
 
