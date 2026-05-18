@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.18.4"
+$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.18.5"
 $installerPayloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $installerPayloadMarker = "AUTOVENCORD_PAYLOAD_VERSION"
 $windowTitle = "AutoVencord"
@@ -814,11 +814,16 @@ function Show-ActionResult {
 
 function Assert-DiscordReady {
     param(
-        [hashtable]$Ui
+        [hashtable]$Ui,
+        [switch]$AllowBusy
     )
 
     $discordState = (Get-AutoVencordStatus).Discord
     if ($discordState.State -eq "DiscordReady") {
+        return
+    }
+
+    if ($AllowBusy -and $discordState.State -in @("DiscordUpdating", "DiscordIncomplete")) {
         return
     }
 
@@ -896,7 +901,7 @@ function Invoke-Install {
         [hashtable]$Ui
     )
 
-    Assert-DiscordReady -Ui $Ui
+    Assert-DiscordReady -Ui $Ui -AllowBusy
     $downloaded = Download-LatestInstaller -Ui $Ui -AllowLocalFallback
     Invoke-SetupScript -SetupScriptPath $downloaded.SetupPath -PatchNow -Ui $Ui
     Reset-UpdateAvailabilityCache
@@ -1159,7 +1164,7 @@ function Invoke-Update {
         [hashtable]$Ui
     )
 
-    Assert-DiscordReady -Ui $Ui
+    Assert-DiscordReady -Ui $Ui -AllowBusy
     $status = Get-StatusText -Ui $Ui
     if (-not (Get-UpdateAvailability -Status $status)) {
         Reset-UpdateAvailabilityCache

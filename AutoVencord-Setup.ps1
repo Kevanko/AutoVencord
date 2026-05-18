@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$payloadVersion = "2026.05.18.4"
+$payloadVersion = "2026.05.18.5"
 $payloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $baseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $taskName = "AutoVencord Watchdog"
@@ -324,8 +324,7 @@ try {
                 exit $exitCodes.DiscordMissing
             }
             "DiscordIncomplete" {
-                Write-Host "Discord looks incomplete. Start Discord once, then try again." -ForegroundColor Red
-                exit $exitCodes.DiscordNotReady
+                Write-Warning "Discord looks incomplete. AutoVencord will install and watchdog will retry when Discord is ready."
             }
         }
     }
@@ -369,7 +368,7 @@ try {
                         Write-Warning "Initial patch failed. Watchdog will retry when Discord is ready."
                         Write-AutoVencordLog -Phase "SETUP" -Action "patch-failed" -Message "Initial patch failed." -Fingerprint $readyState.Fingerprint -ExitCode $patchResult.ExitCode
                         Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot (Get-AutoVencordContext).DiscordRoot -LogPhase "SETUP"
-                        $patchExitCode = $exitCodes.PatchFailed
+                        $patchExitCode = $exitCodes.Success
                     } else {
                         $verifiedPatch = Get-PatchState -AppDir (Get-DiscordState).Latest
                         if ($verifiedPatch.State -eq "PatchPresent") {
@@ -380,7 +379,7 @@ try {
                                 Write-AutoVencordLog -Phase "SETUP" -Action "patch-verified" -Message "Initial patch verified." -Fingerprint $stablePatch.Fingerprint
                             } else {
                                 Write-Warning "Discord changed after patch. Watchdog will retry when Discord is ready."
-                                $patchExitCode = $exitCodes.PatchFailed
+                                $patchExitCode = $exitCodes.Success
                             }
                         } else {
                             Write-Warning "Initial patch completed, but verification is inconclusive. Watchdog will keep monitoring."
@@ -392,14 +391,14 @@ try {
                     Write-Warning "Discord looks busy or incomplete. Watchdog will patch it automatically when it is ready."
                     Write-AutoVencordLog -Phase "SETUP" -Action "patch-postpone" -Message $readyState.Message -Fingerprint $readyState.Fingerprint
                     Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot (Get-AutoVencordContext).DiscordRoot -LogPhase "SETUP"
-                    $patchExitCode = $exitCodes.DiscordNotReady
+                    $patchExitCode = $exitCodes.Success
                 }
             }
         } else {
             Write-Warning "Discord looks busy or incomplete. Watchdog will patch it automatically when it is ready."
             Write-AutoVencordLog -Phase "SETUP" -Action "patch-postpone" -Message $readyState.Message -Fingerprint $readyState.Fingerprint
             Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot (Get-AutoVencordContext).DiscordRoot -LogPhase "SETUP"
-            $patchExitCode = $exitCodes.DiscordNotReady
+            $patchExitCode = $exitCodes.Success
         }
 
         if (-not (Install-AutoVencordTask -ScriptPath (Get-AutoVencordContext).WatchdogPath)) {
