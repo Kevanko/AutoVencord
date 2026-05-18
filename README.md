@@ -25,7 +25,7 @@ The menu opens automatically in Russian or English:
 ## What It Does
 
 - checks that Discord is installed before setup
-- watches `%LOCALAPPDATA%\Discord` for new `app-*` versions
+- watches the detected Discord install folder for new `app-*` versions
 - waits while Discord is still updating
 - runs the official `VencordInstallerCli.exe` only when the newest Discord version is not patched
 - writes logs to `%LOCALAPPDATA%\AutoVencord\last-action.log`
@@ -40,7 +40,14 @@ If AutoVencord is already installed and Discord was removed, the menu switches t
 - `Uninstall`
 - `Exit`
 
-Install or start Discord once, then run AutoVencord again.
+Install or start Discord once, then run AutoVencord again. If Discord is installed outside `%LOCALAPPDATA%\Discord`, AutoVencord tries to find it from the running Discord process and Discord shortcuts.
+
+Manual path override:
+
+```powershell
+$env:AUTOVENCORD_DISCORD_ROOT = "D:\Path\To\Discord"
+irm https://get.vencord.ru | iex
+```
 
 ## Files
 
@@ -107,7 +114,7 @@ irm https://get.vencord.ru | iex
 ## Что Делает
 
 - проверяет, что Discord установлен перед установкой AutoVencord
-- следит за `%LOCALAPPDATA%\Discord` и новыми папками `app-*`
+- следит за найденной папкой Discord и новыми папками `app-*`
 - ждёт, пока Discord закончит обновляться
 - запускает официальный `VencordInstallerCli.exe` только если свежая версия Discord не пропатчена
 - пишет лог в `%LOCALAPPDATA%\AutoVencord\last-action.log`
@@ -122,7 +129,14 @@ AutoVencord не даст установить себя, если Discord не �
 - `Удалить`
 - `Выход`
 
-Установи или запусти Discord один раз, потом открой AutoVencord снова.
+Установи или запусти Discord один раз, потом открой AutoVencord снова. Если Discord установлен не в `%LOCALAPPDATA%\Discord`, AutoVencord попробует найти его по запущенному процессу Discord и ярлыкам Discord.
+
+Ручное указание пути:
+
+```powershell
+$env:AUTOVENCORD_DISCORD_ROOT = "D:\Path\To\Discord"
+irm https://get.vencord.ru | iex
+```
 
 ## Файлы
 

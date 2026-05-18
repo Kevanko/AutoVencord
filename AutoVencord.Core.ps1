@@ -1,4 +1,4 @@
-$script:AutoVencordPayloadVersion = "2026.05.17.6"
+$script:AutoVencordPayloadVersion = "2026.05.18.1"
 $script:AutoVencordExitCodes = @{
     Success = 0
     NetworkFailure = 10
@@ -30,6 +30,8 @@ function Set-AutoVencordContext {
         $BaseDir
     }
 
+    $resolvedDiscordRoot = Resolve-AutoVencordDiscordRoot -BaseDir $resolvedBaseDir
+
     $script:AutoVencordContext = [ordered]@{
         BaseDir = $resolvedBaseDir
         TaskName = $TaskName
@@ -43,7 +45,7 @@ function Set-AutoVencordContext {
         LogPath = Join-Path $resolvedBaseDir "last-action.log"
         PreviousLogPath = Join-Path $resolvedBaseDir "last-action.previous.log"
         RuntimeManifestPath = Join-Path $resolvedBaseDir "installed-manifest.json"
-        DiscordRoot = Join-Path $env:LOCALAPPDATA "Discord"
+        DiscordRoot = $resolvedDiscordRoot
         LogMaxBytes = 2097152
         ReadyRetryDelaySeconds = 2
         ReadyMaxWaitSeconds = 300
@@ -57,6 +59,26 @@ function Set-AutoVencordContext {
     }
 
     return [pscustomobject]$script:AutoVencordContext
+}
+
+function Set-AutoVencordDiscordRoot {
+    param(
+        [string]$DiscordRoot
+    )
+
+    if (-not $script:AutoVencordContext -or [string]::IsNullOrWhiteSpace($DiscordRoot)) {
+        return
+    }
+
+    $resolvedRoot = Resolve-NormalizedPath -Path $DiscordRoot
+    if ([string]::IsNullOrWhiteSpace($resolvedRoot)) {
+        return
+    }
+
+    if ([string]$script:AutoVencordContext.DiscordRoot -ne $resolvedRoot) {
+        $script:AutoVencordContext.DiscordRoot = $resolvedRoot
+        Write-AutoVencordLog -Phase "RUNTIME" -Action "discord-root" -Message ("Discord root set to {0}" -f $resolvedRoot)
+    }
 }
 
 function Get-AutoVencordContext {
@@ -445,9 +467,213 @@ function Get-DiscordAppVersion {
     }
 }
 
-function Get-LatestDiscordInstall {
+function Resolve-NormalizedPath {
+    param(
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $null
+    }
+
+    try {
+        return [System.IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($Path.Trim('"')))
+    } catch {
+        return $null
+    }
+}
+
+function Resolve-DiscordRootFromPath {
+    param(
+        [string]$Path
+    )
+
+    $normalized = Resolve-NormalizedPath -Path $Path
+    if (-not $normalized) {
+        return $null
+    }
+
+    try {
+        if ([System.IO.File]::Exists($normalized)) {
+            $fileName = [System.IO.Path]::GetFileName($normalized)
+            $parent = Split-Path -Parent $normalized
+
+            if ($fileName -ieq "Update.exe") {
+                return $parent
+            }
+
+            if ($fileName -ieq "Discord.exe") {
+                $appDir = Split-Path -Parent $normalized
+                if ((Split-Path -Leaf $appDir) -like "app-*") {
+                    return (Split-Path -Parent $appDir)
+                }
+            }
+
+            return $parent
+        }
+
+        if ([System.IO.Directory]::Exists($normalized)) {
+            if ((Split-Path -Leaf $normalized) -like "app-*") {
+                return (Split-Path -Parent $normalized)
+            }
+
+            return $normalized
+        }
+    } catch {}
+
+    return $null
+}
+
+function Test-DiscordRootCandidate {
+    param(
+        [string]$Path
+    )
+
+    $root = Resolve-DiscordRootFromPath -Path $Path
+    if (-not $root -or -not (Test-Path -LiteralPath $root)) {
+        return $false
+    }
+
+    $updatePath = Join-Path $root "Update.exe"
+    $appDir = Get-ChildItem -LiteralPath $root -Directory -Filter "app-*" -ErrorAction SilentlyContinue |
+        Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "Discord.exe") } |
+        Select-Object -First 1
+
+    return (($null -ne $appDir) -or ((Split-Path -Leaf $root) -ieq "Discord" -and (Test-Path -LiteralPath $updatePath)))
+}
+
+function Add-DiscordRootCandidate {
+    param(
+        [System.Collections.Generic.List[string]]$Candidates,
+        [string]$Path
+    )
+
+    $root = Resolve-DiscordRootFromPath -Path $Path
+    if (-not $root) {
+        return
+    }
+
+    foreach ($candidate in $Candidates) {
+        if ([string]::Equals($candidate, $root, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return
+        }
+    }
+
+    $Candidates.Add($root) | Out-Null
+}
+
+function Add-DiscordShortcutCandidates {
+    param(
+        [System.Collections.Generic.List[string]]$Candidates
+    )
+
+    try {
+        $shell = New-Object -ComObject WScript.Shell
+    } catch {
+        return
+    }
+
+    $shortcutRoots = @()
+    foreach ($folder in @("Desktop", "CommonDesktopDirectory", "StartMenu", "CommonStartMenu", "Programs", "CommonPrograms")) {
+        try {
+            $path = [Environment]::GetFolderPath($folder)
+            if ($path -and (Test-Path -LiteralPath $path)) {
+                $shortcutRoots += $path
+            }
+        } catch {}
+    }
+
+    foreach ($root in ($shortcutRoots | Select-Object -Unique)) {
+        Get-ChildItem -LiteralPath $root -Filter "*.lnk" -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like "*Discord*" } |
+            ForEach-Object {
+                try {
+                    $shortcut = $shell.CreateShortcut($_.FullName)
+                    Add-DiscordRootCandidate -Candidates $Candidates -Path $shortcut.TargetPath
+                    Add-DiscordRootCandidate -Candidates $Candidates -Path $shortcut.WorkingDirectory
+                } catch {}
+            }
+    }
+}
+
+function Add-InstalledManifestDiscordRootCandidate {
+    param(
+        [System.Collections.Generic.List[string]]$Candidates,
+        [string]$BaseDir
+    )
+
+    if ([string]::IsNullOrWhiteSpace($BaseDir)) {
+        return
+    }
+
+    $manifestPath = Join-Path $BaseDir "installed-manifest.json"
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
+        return
+    }
+
+    try {
+        $manifest = Read-JsonFile -Path $manifestPath
+        if ($manifest -and $manifest.discordRoot) {
+            Add-DiscordRootCandidate -Candidates $Candidates -Path ([string]$manifest.discordRoot)
+        }
+    } catch {}
+}
+
+function Get-DiscordRootCandidates {
+    param(
+        [string]$BaseDir
+    )
+
+    $candidates = New-Object 'System.Collections.Generic.List[string]'
+
+    Add-DiscordRootCandidate -Candidates $candidates -Path $env:AUTOVENCORD_DISCORD_ROOT
+    Add-InstalledManifestDiscordRootCandidate -Candidates $candidates -BaseDir $BaseDir
+    Add-DiscordRootCandidate -Candidates $candidates -Path (Join-Path $env:LOCALAPPDATA "Discord")
+
+    Get-Process Discord,Update -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            try {
+                Add-DiscordRootCandidate -Candidates $candidates -Path $_.Path
+            } catch {}
+        }
+
+    Add-DiscordShortcutCandidates -Candidates $candidates
+    return @($candidates)
+}
+
+function Resolve-AutoVencordDiscordRoot {
+    param(
+        [string]$BaseDir
+    )
+
+    $fallback = Join-Path $env:LOCALAPPDATA "Discord"
+    foreach ($candidate in Get-DiscordRootCandidates -BaseDir $BaseDir) {
+        if (Test-DiscordRootCandidate -Path $candidate) {
+            return (Resolve-DiscordRootFromPath -Path $candidate)
+        }
+    }
+
+    return $fallback
+}
+
+function Update-AutoVencordDiscordRoot {
     $context = Get-AutoVencordContext
-    if (-not (Test-Path -LiteralPath $context.DiscordRoot)) {
+    if (Test-DiscordRootCandidate -Path $context.DiscordRoot) {
+        return $context.DiscordRoot
+    }
+
+    $resolvedRoot = Resolve-AutoVencordDiscordRoot -BaseDir $context.BaseDir
+    if ($resolvedRoot -and (Test-DiscordRootCandidate -Path $resolvedRoot)) {
+        Set-AutoVencordDiscordRoot -DiscordRoot $resolvedRoot
+        return $resolvedRoot
+    }
+
+    return $context.DiscordRoot
+}
+
+function Get-LatestDiscordInstall {
+    $discordRoot = Update-AutoVencordDiscordRoot
+    if (-not (Test-Path -LiteralPath $discordRoot)) {
         return $null
     }
 
@@ -455,7 +681,7 @@ function Get-LatestDiscordInstall {
     $latestVersion = [version]"0.0.0.0"
     $latestWriteTime = [datetime]::MinValue
 
-    $dirs = Get-ChildItem -LiteralPath $context.DiscordRoot -ErrorAction SilentlyContinue |
+    $dirs = Get-ChildItem -LiteralPath $discordRoot -ErrorAction SilentlyContinue |
         Where-Object { $_.PSIsContainer -and $_.Name -like "app-*" }
 
     foreach ($dir in $dirs) {
@@ -476,7 +702,7 @@ function Get-DiscordClientProcesses {
     )
 
     $root = if ([string]::IsNullOrWhiteSpace($DiscordRoot)) {
-        (Get-AutoVencordContext).DiscordRoot
+        Update-AutoVencordDiscordRoot
     } else {
         $DiscordRoot
     }
@@ -504,8 +730,7 @@ function Start-DiscordClient {
         [string]$LogPhase = "RUNTIME"
     )
 
-    $context = Get-AutoVencordContext
-    $root = if ([string]::IsNullOrWhiteSpace($DiscordRoot)) { $context.DiscordRoot } else { $DiscordRoot }
+    $root = if ([string]::IsNullOrWhiteSpace($DiscordRoot)) { Update-AutoVencordDiscordRoot } else { $DiscordRoot }
     $updatePath = Join-Path $root "Update.exe"
 
     try {
@@ -554,7 +779,7 @@ function Resume-DiscordAfterPatchIfNeeded {
 }
 
 function Test-DiscordUpdaterActive {
-    $context = Get-AutoVencordContext
+    $discordRoot = Update-AutoVencordDiscordRoot
     $processes = Get-Process -ErrorAction SilentlyContinue |
         Where-Object { @("Update", "Squirrel") -contains $_.ProcessName }
 
@@ -565,7 +790,7 @@ function Test-DiscordUpdaterActive {
             $path = $process.Path
         } catch {}
 
-        if ($path -and ($path.StartsWith($context.DiscordRoot, [System.StringComparison]::OrdinalIgnoreCase) -or $path -like "*\SquirrelTemp\*")) {
+        if ($path -and ($path.StartsWith($discordRoot, [System.StringComparison]::OrdinalIgnoreCase) -or $path -like "*\SquirrelTemp\*")) {
             return $true
         }
     }
@@ -574,7 +799,8 @@ function Test-DiscordUpdaterActive {
         return $true
     }
 
-    $squirrelTemp = Join-Path $context.DiscordRoot "SquirrelTemp"
+    $context = Get-AutoVencordContext
+    $squirrelTemp = Join-Path $discordRoot "SquirrelTemp"
     if (Test-Path -LiteralPath $squirrelTemp) {
         try {
             if ((Get-Item -LiteralPath $squirrelTemp).LastWriteTimeUtc -gt (Get-Date).ToUniversalTime().AddSeconds(-[Math]::Max(1, $context.UpdaterTempGraceSeconds))) {
@@ -714,8 +940,8 @@ function Get-DiscordState {
         [switch]$SkipStabilityWait
     )
 
-    $context = Get-AutoVencordContext
-    if (-not (Test-Path -LiteralPath $context.DiscordRoot)) {
+    $discordRoot = Update-AutoVencordDiscordRoot
+    if (-not (Test-Path -LiteralPath $discordRoot)) {
         return [pscustomobject]@{
             State = "DiscordMissing"
             Message = "Discord was not found."
@@ -1082,10 +1308,12 @@ function Write-InstalledPayloadManifest {
         [hashtable]$FileHashes
     )
 
+    $discordRoot = Update-AutoVencordDiscordRoot
     $manifest = [ordered]@{
         version = $PayloadVersion
         payloadRef = $PayloadRef
         installedAt = (Get-Date).ToString("o")
+        discordRoot = $discordRoot
         files = $FileHashes
     }
 
@@ -1277,9 +1505,14 @@ function Start-AutoVencordWatchdogLoop {
 
     try {
         while ($true) {
+            $null = Update-AutoVencordDiscordRoot
+            $context = Get-AutoVencordContext
+
             while (-not (Test-Path -LiteralPath $context.DiscordRoot)) {
                 Write-AutoVencordLog -Phase "WATCHDOG" -Action "wait-root" -Message "Discord root missing, waiting for it to appear."
                 Start-Sleep -Seconds 30
+                $null = Update-AutoVencordDiscordRoot
+                $context = Get-AutoVencordContext
             }
 
             $watcher = $null
@@ -1294,6 +1527,7 @@ function Start-AutoVencordWatchdogLoop {
                     Remove-Event -ErrorAction SilentlyContinue
 
                 $watcher = New-Object System.IO.FileSystemWatcher
+                $context = Get-AutoVencordContext
                 $watcher.Path = $context.DiscordRoot
                 $watcher.IncludeSubdirectories = $true
                 $watcher.InternalBufferSize = 65536
@@ -1308,7 +1542,7 @@ function Start-AutoVencordWatchdogLoop {
                 Write-AutoVencordLog -Phase "WATCHDOG" -Action "watcher-start" -Message "Watcher started."
                 Invoke-PatchCheck
 
-                while (Test-Path -LiteralPath $context.DiscordRoot) {
+                while (Test-Path -LiteralPath (Get-AutoVencordContext).DiscordRoot) {
                     $event = Wait-Event -Timeout $context.PeriodicCheckSeconds
                     if ($event) {
                         $sourceIdentifier = $event.SourceIdentifier
