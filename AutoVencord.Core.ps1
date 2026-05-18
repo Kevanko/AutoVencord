@@ -1,4 +1,4 @@
-$script:AutoVencordPayloadVersion = "2026.05.18.5"
+$script:AutoVencordPayloadVersion = "2026.05.18.6"
 $script:AutoVencordExitCodes = @{
     Success = 0
     NetworkFailure = 10
@@ -205,9 +205,10 @@ function Invoke-DownloadToFile {
 
         try {
             if (Get-Command Invoke-WebRequest -ErrorAction SilentlyContinue) {
-                Invoke-WebRequest -UseBasicParsing $url -OutFile $tempPath
+                Invoke-WebRequest -UseBasicParsing $url -OutFile $tempPath -TimeoutSec 15
             } else {
                 $client = New-Object System.Net.WebClient
+                $client.Headers.Add("user-agent", "AutoVencord")
                 $client.DownloadFile($url, $tempPath)
             }
 

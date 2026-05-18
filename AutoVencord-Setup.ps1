@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$payloadVersion = "2026.05.18.5"
+$payloadVersion = "2026.05.18.6"
 $payloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $baseDir = Join-Path $env:LOCALAPPDATA "AutoVencord"
 $taskName = "AutoVencord Watchdog"
@@ -42,9 +42,10 @@ function Invoke-BootstrapDownload {
         $tempPath = "{0}.{1}.tmp" -f $DestinationPath, ([guid]::NewGuid().ToString("N"))
         try {
             if (Get-Command Invoke-WebRequest -ErrorAction SilentlyContinue) {
-                Invoke-WebRequest -UseBasicParsing $url -OutFile $tempPath
+                Invoke-WebRequest -UseBasicParsing $url -OutFile $tempPath -TimeoutSec 15
             } else {
                 $client = New-Object System.Net.WebClient
+                $client.Headers.Add("user-agent", "AutoVencord")
                 $client.DownloadFile($url, $tempPath)
             }
 
