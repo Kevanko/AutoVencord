@@ -375,6 +375,21 @@ function Stop-AutoVencordTask {
     $null = Invoke-SchtasksSafe -Arguments @("/End", "/TN", $context.TaskName)
 }
 
+function Get-AutoVencordCurrentUserId {
+    try {
+        $identityName = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        if (-not [string]::IsNullOrWhiteSpace($identityName)) {
+            return $identityName
+        }
+    } catch {}
+
+    if (-not [string]::IsNullOrWhiteSpace($env:USERDOMAIN) -and -not [string]::IsNullOrWhiteSpace($env:USERNAME)) {
+        return ("{0}\{1}" -f $env:USERDOMAIN, $env:USERNAME)
+    }
+
+    return $env:USERNAME
+}
+
 function Install-AutoVencordTask {
     param(
         [string]$ScriptPath
@@ -382,14 +397,15 @@ function Install-AutoVencordTask {
 
     $context = Get-AutoVencordContext
     $commandArgument = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ScriptPath`""
+    $currentUserId = Get-AutoVencordCurrentUserId
     Stop-AutoVencordTask
 
     if (Get-Command Register-ScheduledTask -ErrorAction SilentlyContinue) {
         Unregister-ScheduledTask -TaskName $context.TaskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 
         $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $commandArgument
-        $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-        $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+        $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUserId
+        $principal = New-ScheduledTaskPrincipal -UserId $currentUserId -LogonType Interactive -RunLevel Limited
         $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 3650)
 
         Register-ScheduledTask -TaskName $context.TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
