@@ -50,7 +50,7 @@ function Set-AutoVencordContext {
         ReadyRetryDelaySeconds = 2
         ReadyMaxWaitSeconds = 300
         PatchTimeoutSeconds = 180
-        PeriodicCheckSeconds = 60
+        PeriodicCheckSeconds = 21600
         DebounceSeconds = 5
         PostPatchWatchSeconds = 15
         PostPatchCheckIntervalSeconds = 3
@@ -1493,7 +1493,29 @@ function Test-RelevantDiscordPath {
         return $false
     }
 
-    return ($Path -like "*\app-*\*" -or $Path -like "*\SquirrelTemp\*" -or $Path -like "*\Discord\app-*")
+    $normalizedPath = Resolve-NormalizedPath -Path $Path
+    if (-not $normalizedPath) {
+        return $false
+    }
+
+    $leafName = Split-Path -Leaf $normalizedPath
+    if ($leafName -like "app-*") {
+        return $true
+    }
+
+    if ($normalizedPath -like "*\SquirrelTemp\*") {
+        return $true
+    }
+
+    if ($normalizedPath -like "*\app-*\resources\app.asar" -or $normalizedPath -like "*\app-*\resources\_app.asar") {
+        return $true
+    }
+
+    if ($normalizedPath -like "*\app-*\Discord.exe" -or $normalizedPath -like "*\app-*\Update.exe") {
+        return $true
+    }
+
+    return $false
 }
 
 function Start-AutoVencordWatchdogLoop {
@@ -1698,9 +1720,6 @@ function Start-AutoVencordWatchdogLoop {
                             Write-AutoVencordLog -Phase "WATCHDOG" -Action "filesystem-change" -Message "Relevant Discord filesystem change detected." -Fingerprint $eventPath
                             Invoke-PatchCheck
                         }
-                    } else {
-                        Write-AutoVencordLog -Phase "WATCHDOG" -Action "periodic-check" -Message "Running periodic safety check."
-                        Invoke-PatchCheck
                     }
                 }
             } catch {
