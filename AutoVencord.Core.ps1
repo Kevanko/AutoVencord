@@ -401,27 +401,44 @@ function Install-AutoVencordTask {
     Stop-AutoVencordTask
 
     if (Get-Command Register-ScheduledTask -ErrorAction SilentlyContinue) {
-        Unregister-ScheduledTask -TaskName $context.TaskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-
-        $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $commandArgument
-        $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUserId
-        $principal = New-ScheduledTaskPrincipal -UserId $currentUserId -LogonType Interactive -RunLevel Limited
-        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 3650)
-
-        Register-ScheduledTask -TaskName $context.TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
         try {
-            Start-ScheduledTask -TaskName $context.TaskName -ErrorAction Stop
-        } catch {
-            Write-AutoVencordLog -Phase "SETUP" -Action "task-start" -Message $_.Exception.Message
-        }
+            Unregister-ScheduledTask -TaskName $context.TaskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 
-        return $true
+            $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $commandArgument
+            $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUserId
+            $principal = New-ScheduledTaskPrincipal -UserId $currentUserId -LogonType Interactive -RunLevel Limited
+            $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 3650)
+
+            Register-ScheduledTask -TaskName $context.TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+            try {
+                Start-ScheduledTask -TaskName $context.TaskName -ErrorAction Stop
+            } catch {
+                Write-AutoVencordLog -Phase "SETUP" -Action "task-start" -Message $_.Exception.Message
+            }
+
+            return $true
+        } catch {
+            Write-AutoVencordLog -Phase "SETUP" -Action "task-register" -Message $_.Exception.Message
+        }
     }
 
     $null = Invoke-SchtasksSafe -Arguments @("/Delete", "/TN", $context.TaskName, "/F")
     $createResult = Invoke-SchtasksSafe -Arguments @("/Create", "/F", "/SC", "ONLOGON", "/TN", $context.TaskName, "/TR", "powershell.exe $commandArgument")
     if ($createResult.ExitCode -ne 0) {
         Write-AutoVencordLog -Phase "SETUP" -Action "task-create" -Message ($createResult.Output -join " ") -ExitCode $createResult.ExitCode
+        if (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue) {
+            try {
+                $existingTask = Get-ScheduledTask -TaskName $context.TaskName -ErrorAction Stop
+                if ($existingTask) {
+                    Start-ScheduledTask -TaskName $context.TaskName -ErrorAction Stop
+                    Write-AutoVencordLog -Phase "SETUP" -Action "task-reuse" -Message "Existing watchdog task reused after registration failed."
+                    return $true
+                }
+            } catch {
+                Write-AutoVencordLog -Phase "SETUP" -Action "task-reuse" -Message $_.Exception.Message
+            }
+        }
+
         return $false
     }
 
@@ -1535,6 +1552,10 @@ function Start-AutoVencordWatchdogLoop {
     $restartDelay = $context.WatcherRestartDelaySeconds
 
     function Invoke-PatchCheck {
+        param(
+            [switch]$WaitForQuiet
+        )
+
         if ($isChecking) {
             Write-AutoVencordLog -Phase "WATCHDOG" -Action "skip" -Message "Check skipped because another check is already running."
             return
@@ -1544,7 +1565,11 @@ function Start-AutoVencordWatchdogLoop {
         $isChecking = $true
 
         try {
-            $discordState = Get-DiscordState
+            $discordState = if ($WaitForQuiet) {
+                Wait-ForDiscordFilesystemQuiet -QuietSeconds 10 -MaxWaitSeconds $context.ReadyMaxWaitSeconds -LogPhase "WATCHDOG"
+            } else {
+                Get-DiscordState
+            }
 
             if ($discordState.State -ne "DiscordReady") {
                 Write-AutoVencordLog -Phase "WATCHDOG" -Action "discord-state" -Message $discordState.Message -Fingerprint $discordState.Fingerprint
@@ -1718,8 +1743,10 @@ function Start-AutoVencordWatchdogLoop {
 
                         if (Test-RelevantDiscordPath -Path $eventPath) {
                             Write-AutoVencordLog -Phase "WATCHDOG" -Action "filesystem-change" -Message "Relevant Discord filesystem change detected." -Fingerprint $eventPath
-                            Invoke-PatchCheck
+                            Invoke-PatchCheck -WaitForQuiet
                         }
+                    } else {
+                        Invoke-PatchCheck
                     }
                 }
             } catch {
