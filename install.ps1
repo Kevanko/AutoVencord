@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$AUTOVENCORD_PAYLOAD_VERSION = "2026.05.18.8"
+$AUTOVENCORD_PAYLOAD_VERSION = "2026.10.13.1"
 $installerPayloadRef = if ($env:AUTOVENCORD_PAYLOAD_REF) { $env:AUTOVENCORD_PAYLOAD_REF } else { "main" }
 $installerPayloadMarker = "AUTOVENCORD_PAYLOAD_VERSION"
 $windowTitle = "AutoVencord"
@@ -1120,6 +1120,7 @@ function Invoke-Uninstall {
 
     Write-Host $Ui.RunningUninstall -ForegroundColor Yellow
     Stop-AutoVencordTask
+    $null = Invoke-SchtasksSafe -Arguments @("/Delete", "/TN", $context.TaskName, "/F")
 
     try {
         Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |

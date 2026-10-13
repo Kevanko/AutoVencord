@@ -1,4 +1,4 @@
-$script:AutoVencordPayloadVersion = "2026.05.18.8"
+$script:AutoVencordPayloadVersion = "2026.10.13.1"
 $script:AutoVencordExitCodes = @{
     Success = 0
     NetworkFailure = 10
@@ -396,7 +396,13 @@ function Install-AutoVencordTask {
     )
 
     $context = Get-AutoVencordContext
-    $commandArgument = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ScriptPath`""
+    $commandArgument = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ScriptPath`""
+    $executable = "powershell.exe"
+    # -WindowStyle Hidden still leaves a visible window when Windows Terminal is the default console (Win 11).
+    if ([Environment]::OSVersion.Version.Build -ge 17763) {
+        $executable = "conhost.exe"
+        $commandArgument = "--headless powershell.exe $commandArgument"
+    }
     $currentUserId = Get-AutoVencordCurrentUserId
     Stop-AutoVencordTask
 
@@ -404,7 +410,7 @@ function Install-AutoVencordTask {
         try {
             Unregister-ScheduledTask -TaskName $context.TaskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 
-            $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $commandArgument
+            $action = New-ScheduledTaskAction -Execute $executable -Argument $commandArgument
             $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUserId
             $principal = New-ScheduledTaskPrincipal -UserId $currentUserId -LogonType Interactive -RunLevel Limited
             $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 3650)
@@ -423,7 +429,7 @@ function Install-AutoVencordTask {
     }
 
     $null = Invoke-SchtasksSafe -Arguments @("/Delete", "/TN", $context.TaskName, "/F")
-    $createResult = Invoke-SchtasksSafe -Arguments @("/Create", "/F", "/SC", "ONLOGON", "/TN", $context.TaskName, "/TR", "powershell.exe $commandArgument")
+    $createResult = Invoke-SchtasksSafe -Arguments @("/Create", "/F", "/SC", "ONLOGON", "/TN", $context.TaskName, "/TR", "$executable $commandArgument")
     if ($createResult.ExitCode -ne 0) {
         Write-AutoVencordLog -Phase "SETUP" -Action "task-create" -Message ($createResult.Output -join " ") -ExitCode $createResult.ExitCode
         if (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue) {
@@ -1545,10 +1551,10 @@ function Start-AutoVencordWatchdogLoop {
         return
     }
 
-    $isChecking = $false
-    $lastSuccessfulFingerprint = $null
-    $lastAttemptFingerprint = $null
-    $lastAttemptAt = [datetime]::MinValue
+    $script:isChecking = $false
+    $script:lastSuccessfulFingerprint = $null
+    $script:lastAttemptFingerprint = $null
+    $script:lastAttemptAt = [datetime]::MinValue
     $restartDelay = $context.WatcherRestartDelaySeconds
 
     function Invoke-PatchCheck {
@@ -1556,13 +1562,12 @@ function Start-AutoVencordWatchdogLoop {
             [switch]$WaitForQuiet
         )
 
-        if ($isChecking) {
+        if ($script:isChecking) {
             Write-AutoVencordLog -Phase "WATCHDOG" -Action "skip" -Message "Check skipped because another check is already running."
             return
         }
 
         $script:isChecking = $true
-        $isChecking = $true
 
         try {
             $discordState = if ($WaitForQuiet) {
@@ -1588,7 +1593,7 @@ function Start-AutoVencordWatchdogLoop {
             $patchState = Get-PatchState -AppDir $discordState.Latest
             switch ($patchState.State) {
                 "PatchPresent" {
-                    $lastSuccessfulFingerprint = $patchState.Fingerprint
+                    $script:lastSuccessfulFingerprint = $patchState.Fingerprint
                     Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-state" -Message "Discord is already patched." -Fingerprint $patchState.Fingerprint
                     return
                 }
@@ -1598,16 +1603,16 @@ function Start-AutoVencordWatchdogLoop {
                 }
             }
 
-            if ($lastSuccessfulFingerprint -eq $patchState.Fingerprint) {
+            if ($script:lastSuccessfulFingerprint -eq $patchState.Fingerprint) {
                 return
             }
 
-            if ($lastAttemptFingerprint -eq $patchState.Fingerprint -and ((Get-Date) -lt $lastAttemptAt.AddSeconds(30))) {
+            if ($script:lastAttemptFingerprint -eq $patchState.Fingerprint -and ((Get-Date) -lt $script:lastAttemptAt.AddSeconds(30))) {
                 return
             }
 
-            $lastAttemptFingerprint = $patchState.Fingerprint
-            $lastAttemptAt = Get-Date
+            $script:lastAttemptFingerprint = $patchState.Fingerprint
+            $script:lastAttemptAt = Get-Date
 
             $readyState = Wait-ForDiscordFilesystemQuiet -QuietSeconds 10 -MaxWaitSeconds $context.ReadyMaxWaitSeconds -LogPhase "WATCHDOG"
             if ($readyState.State -ne "DiscordReady") {
@@ -1617,7 +1622,7 @@ function Start-AutoVencordWatchdogLoop {
 
             $recheckPatch = Get-PatchState -AppDir $readyState.Latest
             if ($recheckPatch.State -eq "PatchPresent") {
-                $lastSuccessfulFingerprint = $recheckPatch.Fingerprint
+                $script:lastSuccessfulFingerprint = $recheckPatch.Fingerprint
                 return
             }
 
@@ -1648,13 +1653,13 @@ function Start-AutoVencordWatchdogLoop {
                 Resume-DiscordAfterPatchIfNeeded -WasRunning $restartDiscordAfterPatch -DiscordRoot $context.DiscordRoot -LogPhase "WATCHDOG"
                 $stablePatchState = Confirm-PatchRemainsPresent -AppDir $verifiedDiscordState.Latest -WatchSeconds $context.PostPatchWatchSeconds -IntervalSeconds $context.PostPatchCheckIntervalSeconds -LogPhase "WATCHDOG"
                 if ($stablePatchState.State -eq "PatchPresent") {
-                    $lastSuccessfulFingerprint = $stablePatchState.Fingerprint
+                    $script:lastSuccessfulFingerprint = $stablePatchState.Fingerprint
                     Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-verified" -Message "Patch verified successfully." -Fingerprint $stablePatchState.Fingerprint
                     return
                 }
 
-                $lastSuccessfulFingerprint = $null
-                $lastAttemptFingerprint = $null
+                $script:lastSuccessfulFingerprint = $null
+                $script:lastAttemptFingerprint = $null
                 if ($patchAttempt -ge 2) {
                     return
                 }
@@ -1667,7 +1672,7 @@ function Start-AutoVencordWatchdogLoop {
 
                 $recheckPatch = Get-PatchState -AppDir $readyState.Latest
                 if ($recheckPatch.State -eq "PatchPresent") {
-                    $lastSuccessfulFingerprint = $recheckPatch.Fingerprint
+                    $script:lastSuccessfulFingerprint = $recheckPatch.Fingerprint
                     Write-AutoVencordLog -Phase "WATCHDOG" -Action "patch-verified" -Message "Patch verified successfully." -Fingerprint $recheckPatch.Fingerprint
                     return
                 }
@@ -1679,7 +1684,6 @@ function Start-AutoVencordWatchdogLoop {
             }
         } finally {
             $script:isChecking = $false
-            $isChecking = $false
         }
     }
 

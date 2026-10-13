@@ -27,7 +27,6 @@ if not "%EXITCODE%"=="0" (
     exit /b %EXITCODE%
 )
 
-call :MaybePause
 exit /b 0
 
 :MaybePause
