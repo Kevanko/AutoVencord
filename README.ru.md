@@ -18,6 +18,12 @@
 irm https://get.vencord.ru | iex
 ```
 
+Если домен недоступен — то же самое напрямую с GitHub:
+
+```powershell
+irm https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1 | iex
+```
+
 Или скачай [`AutoVencord-OneClick.bat`](https://github.com/Kevanko/AutoVencord/raw/main/AutoVencord-OneClick.bat) и запусти его.
 
 В меню выбери **Установить** → ещё раз **Enter** для подтверждения. Готово.
@@ -46,7 +52,7 @@ Discord установлен в нестандартную папку:
 
 ```powershell
 $env:AUTOVENCORD_DISCORD_ROOT = "D:\Path\To\Discord"
-irm https://get.vencord.ru | iex
+irm https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1 | iex
 ```
 
 Статус и логи:

@@ -18,6 +18,12 @@ Run in PowerShell:
 irm https://get.vencord.ru | iex
 ```
 
+If the domain is blocked or down, use GitHub directly:
+
+```powershell
+irm https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1 | iex
+```
+
 Or download [`AutoVencord-OneClick.bat`](https://github.com/Kevanko/AutoVencord/raw/main/AutoVencord-OneClick.bat) and run it.
 
 In the menu pick **Install** → press **Enter** again to confirm. Done.
@@ -46,7 +52,7 @@ Discord installed in a custom location:
 
 ```powershell
 $env:AUTOVENCORD_DISCORD_ROOT = "D:\Path\To\Discord"
-irm https://get.vencord.ru | iex
+irm https://raw.githubusercontent.com/Kevanko/AutoVencord/main/install.ps1 | iex
 ```
 
 Status and logs:
